@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// ascon_perm.c:  Optimized C99 implementation of the ASCON128 permutation.   //
+// ascon_perm.c: Optimized C99 implementation of the ASCON128 permutation.   //
 // Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
