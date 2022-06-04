@@ -219,14 +219,14 @@ static void print_bytes(const char* str, const UChar *bytearray, size_t len)
   }
 
   j = slen;
-  for (i = 0; i < MIN(128, len); i++) {
+  for (i = 0; i < MIN(64, len); i++) {
     byte = bytearray[i] >> 4;
     // replace 87 by 55 to get uppercase letters
     buffer[j++] = byte + ((byte < 10) ? 48 : 87);
     byte = bytearray[i] & 0xf;
     buffer[j++] = byte + ((byte < 10) ? 48 : 87);
   }
-  if (len > 128) {
+  if (len > 64) {
     buffer[j] = buffer[j+1] = buffer[j+2] = '.';
     j += 3;
   }
