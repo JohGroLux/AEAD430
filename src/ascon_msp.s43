@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// ascon_msp.c: MSP430 Asm implementation (for ICC) of ASCON128 permutation. //
+// ascon_msp.c: MSP430 Asm implementation (ICC) of the ASCON128 permutation. //
 // Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
@@ -195,7 +195,7 @@ OXOR macro b0, b1, b2, b3, a0, a1, a2, a3
 
 // The macro `OLDSI` loads an oact-byte operand from RAM via pointer `sptr`
 // using the post-increment addressing mode: A = RAM[sptr++]. An implicit
-// 16&32&48-bit rotation of the loaded operand is possible, i.e. the macro can
+// 16/32/48-bit rotation of the loaded operand is possible, i.e. the macro can
 // also perform an operation of the form A = RAM[sptr++] >>> 16 and
 // A = RAM[sptr++] <<< 32. 
 
