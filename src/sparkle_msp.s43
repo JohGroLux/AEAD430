@@ -1,3 +1,20 @@
+///////////////////////////////////////////////////////////////////////////////
+// sparkle_msp.s43: MSP430 Asm implementation (ICC) of SPARKLE permutation.  //
+// Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
+// License: GPLv3 (see LICENSE file), other licenses available upon request. //
+// ------------------------------------------------------------------------- //
+// This source code is free software: you can redistribute it and/or modify  //
+// it under the terms of the GNU General Public License as published by the  //
+// Free Software Foundation, either version 3 of the License, or (at your    //
+// option) any later version. This source code is distributed in the hope    //
+// that it will be useful, but WITHOUT ANY WARRANTY; without even the        //
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  //
+// See the GNU General Public License for more details. You should have      //
+// received a copy of the GNU General Public License along with this source  //
+// code. If not, see <http://www.gnu.org/licenses/>.                         //
+///////////////////////////////////////////////////////////////////////////////
+
+
 // Function prototype:
 // -------------------
 // void sparkle_msp(uint32_t *state, int brans, int steps)
