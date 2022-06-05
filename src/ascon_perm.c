@@ -57,7 +57,7 @@ extern void ascon_msp(State *s, int nr);
 
 
 // The 1st version of the ASCON128v12 permutation is based on the source code
-// in `round.h` of the `ref` implementation.
+// in `round.h` of the `ref` implementation from the designers.
 
 void ascon_c99_V1(State *s, int nr)
 {
@@ -93,7 +93,7 @@ void ascon_c99_V1(State *s, int nr)
 
 
 // The 2nd version of the ASCON128v12 permutation is based on the source code
-// in `round.h` of the `opt64_lowsize` implementation.
+// in `round.h` of the `opt64_lowsize` implementation from the designers.
 
 void ascon_c99_V2(State *s, int nr)
 {
@@ -133,7 +133,7 @@ void ascon_c99_V2(State *s, int nr)
 
 
 // The 3rd version of the ASCON128v12 permutation is based on the source code
-// in `opt.c` of the implementation of Campos et al.
+// in `opt.c` of the implementation from Campos et al (CANS 2020).
 
 void ascon_c99_V3(State *s, int nr)
 {
@@ -186,12 +186,12 @@ static void print_state(State *s)
 {
   UChar buffer[85], byte;
   int i, j, k = 0;
-  
+
   // printf("%016llx %016llx %016llx ", s->x[0], s->x[1], s->x[2]);
   // printf("%016llx %016llx\n", s->x[3], s->x[4]);
-  
+
   for (i = 0; i < 5; i++) {
-    for (j = 15; j >= 0; j --) {
+    for (j = 15; j >= 0; j--) {
       byte = (s->x[i] >> 4*j) & 0xf;
       // replace 87 by 55 to get uppercase letters
       buffer[k++] = byte + ((byte < 10) ? 48 : 87);
@@ -199,7 +199,7 @@ static void print_state(State *s)
     buffer[k++] = ' ';
   }
   buffer[k-1] = '\0';
-  
+
   printf("%s\n", buffer);
 }
 
