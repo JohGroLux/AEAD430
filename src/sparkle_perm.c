@@ -266,8 +266,8 @@ void test_sparkle(int brans, int steps)
   print_state(state, brans);
 #endif
 
-  // Expected result for 6 branches and 7 rounds
-  // -------------------------------------------
+  // Expected result for 6 branches and 7 steps
+  // ------------------------------------------
   // Test 1 - C99 implementation:
   // 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
   // 4df96879 8c7c2c33 82236b4a 904f4dd7 d6a030e8 f03b09aa c4c3bb34 f063dff9 61f9ceff 8ec21ffa 93df370f 83acf1e2
