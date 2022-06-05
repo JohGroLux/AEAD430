@@ -1,0 +1,646 @@
+// Function prototype:
+// -------------------
+// void sparkle_msp(uint32_t *state, int brans, int steps)
+//
+// Parameters:
+// -----------
+// `state`: pointer to an uint32-array containing $2*brans$ state-words
+// `brans`: number of branches (must be even and >= 4)
+// `steps`: number of steps (must be >= 1 and <= 12)
+//
+// Return value:
+// -------------
+// None
+
+
+name sparkle                // module name
+rseg CODE(2)                // place module in 'CODE' segment with alignment 4
+
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////////// REGISTER NAMES AND CONSTANTS /////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Two MSP430 registers form a Quad-byte Register (QR) that can store a 32-bit
+// operand, whereby little-endian format is used, i.e. the least-significant
+// half of the 32-bit operand is in the lower register.
+
+// quad-byte registers for ARX-box Alzette
+
+#define x0 R4
+#define x1 R5
+#define y0 R6
+#define y1 R7
+#define c0 R8
+#define c1 R9
+
+// quad-byte registers for temp words TX, TY
+
+#define tx0 R14
+#define tx1 R15
+#define ty0 R10
+#define ty1 R11
+
+// quad-byte register allocated on the stack
+
+#define sy0 4(sp)
+#define sy1 2(sp)
+
+// temporary registers for rotation-macros
+
+#define t0 R10
+#define t1 R11
+#define tr R10
+
+// pointer-registers for the state and RCON
+
+#define sptr R12
+#define cptr R13
+#define uptr r13
+
+// loop-counters for branch loop, step loop
+
+#define brans R4
+#define bcnt R4
+#define steps R5
+#define scnt R5
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////// MACROS FOR QUAD-BYTE (32-BIT) ARITHMETIC AND LOGICAL OPERATIONS  //////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `QADD` arithmetically adds two quad-byte operands: A = A + B. An
+// implicit 16-bit rotation of operand B is possible, i.e. the macro can also
+// perform an operation of the form A = A + (B >>> 16).
+
+QADD macro b0, b1, a0, a1
+    add.w   b0, a0
+    addc.w  b1, a1
+    endm
+
+
+// The macro `QAND` bitwise ANDs two quad-byte operands: A = A & B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A ^ (B >>> 16).
+
+QAND macro b0, b1, a0, a1
+    and.w   b0, a0
+    and.w   b1, a1
+    endm
+
+
+// The macro `QIOR` bitwise ORs two quad-byte operands: A = A | B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A | (B >>> 16).
+
+QIOR macro b0, b1, a0, a1
+    bis.w   b0, a0
+    bis.w   b1, a1
+    endm
+
+
+// The macro `QXOR` bitwise XORs two quad-byte operands: A = A ^ B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A ^ (B >>> 16).
+
+QXOR macro b0, b1, a0, a1
+    xor.w   b0, a0
+    xor.w   b1, a1
+    endm
+
+
+// The macro `QMOV` moves a quad-byte operand: A = B.
+
+QMOV macro b0, b1, a0, a1
+    mov.w   b0, a0
+    mov.w   b1, a1
+    endm
+
+
+// The macro `QINV` bitwise inverts a quad-byte operand, whereby the inversion
+// is performed in place: A = ~A.
+
+QINV macro a0, a1
+    inv.w   a0
+    inv.w   a1
+    endm
+
+
+// The macro `QROL` rotates a quad-byte operand one bit left, whereby the
+// rotation is performed in place: A = A <<< 1.
+
+QROL macro a0, a1
+    rla.w   a0
+    rlc.w   a1
+    adc.w   a0
+    endm
+
+
+// The macro `QROR` rotates a quad-byte operand one bit right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+QROR macro a0, a1
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `QROL8` rotates a quad-byte operand 8 bits left, whereby the
+// rotation is performed in place: A = A <<< 8. This macro requires a temporary
+// register `tr`.
+
+QROL8 macro a0, a1
+    swpb    a0
+    swpb    a1
+    mov.b   a0, tr
+    xor.b   a1, tr
+    xor.w   tr, a0
+    xor.w   tr, a1
+    endm
+
+
+// The macro `QROR8` rotates a quad-byte operand 8 bits right, whereby the
+// rotation is performed in place: A = A >>> 8. This macro requires a temporary
+// register `tr`.
+
+QROR8 macro a0, a1
+    mov.b   a0, tr
+    xor.b   a1, tr
+    xor.w   tr, a0
+    xor.w   tr, a1
+    swpb    a0
+    swpb    a1
+    endm
+
+
+// The macro `QPUSH` pushes a quad-byte operand on the stack.
+
+QPUSH macro a0, a1
+    push.w  a0
+    push.w  a1
+    endm
+
+
+// The macro `QPOP` pops a quad-byte operand from the stack.
+
+QPOP macro a0, a1
+    pop.w   a1
+    pop.w   a0
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+///////// MACROS FOR LOADING AND STORING A QUAD-BYTE (32-BIT) OPERAND /////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Note: The MSP430 architecture uses little-endian memory format, which means
+// the least-significant byte of a 32-bit word is at the lowest address.
+
+
+// The macro `QLDCI` loads a quad-byte operand from RAM via pointer `cptr`
+// using the post-increment addressing mode: A = RAM[cptr++]. An implicit
+// 16-bit rotation of the loaded operand is possible, i.e. the macro can also
+// perform an operation of the form A = RAM[cptr++] >>> 16.
+
+QLDCI macro a0, a1
+    mov.w   @cptr+, a0
+    mov.w   @cptr+, a1
+    endm
+
+
+// The macro `QLDCO` loads a quad-byte operand from RAM via pointer `cptr`
+// using the base+offset (i.e. displacement) addressing mode: A = RAM[cptr+B].
+// An implicit 16-bit rotation of the loaded operand is possible, i.e. the
+// macro can also perform an operation of the form A = RAM[cptr+B] >>> 16.
+
+QLDCO macro b0, b1 a0, a1
+    mov.w   b0(cptr), a0
+    mov.w   b1(cptr), a1
+    endm
+
+
+// The macro `QLDSI` loads a quad-byte operand from RAM via pointer `sptr`
+// using the post-increment addressing mode: A = RAM[sptr++]. An implicit
+// 16-bit rotation of the loaded operand is possible, i.e. the macro can also
+// perform an operation of the form A = RAM[sptr++] >>> 16.
+
+QLDSI macro a0, a1
+    mov.w   @sptr+, a0
+    mov.w   @sptr+, a1
+    endm
+
+
+// The macro `QLDSO` loads a quad-byte operand from RAM via pointer `sptr`
+// using the base+offset (i.e. displacement) addressing mode: A = RAM[sptr+B].
+// An implicit 16-bit rotation of the loaded operand is possible, i.e. the
+// macro can also perform an operation of the form A = RAM[sptr+B] >>> 16.
+
+QLDSO macro b0, b1, a0, a1
+    mov.w   b0(sptr), a0
+    mov.w   b1(sptr), a1
+    endm
+
+
+// The macro `QSTSO` stores a quad-byte operand to RAM via pointer `sptr` using
+// the base+offset (i.e. displacement) addressing mode: RAM[sptr+B] = A. An
+// implicit 16-bit rotation of the operand to be stored is possible, i.e. the
+// macro can also perform an operation of the form RAM[sptr+B] = (A >>> 16).
+
+QSTSO macro a0, a1, b0, b1
+    mov.w   a0, b0(sptr)
+    mov.w   a1, b1(sptr)
+    endm
+
+
+// The macro `QLDUI` loads a quad-byte operand from RAM via pointer `uptr`
+// using the post-increment addressing mode: A = RAM[uptr++]. An implicit
+// 16-bit rotation of the loaded operand is possible, i.e. the macro can also
+// perform an operation of the form A = RAM[uptr++] >>> 16.
+
+QLDUI macro a0, a1
+    mov.w   @uptr+, a0
+    mov.w   @uptr+, a1
+    endm
+
+
+// The macro `QLDUO` loads a quad-byte operand from RAM via pointer `uptr`
+// using the base+offset (i.e. displacement) addressing mode: A = RAM[uptr+B].
+// An implicit 16-bit rotation of the loaded operand is possible, i.e. the
+// macro can also perform an operation of the form A = RAM[uptr+B] >>> 16.
+
+QLDUO macro b0, b1, a0, a1
+    mov.w   b0(uptr), a0
+    mov.w   b1(uptr), a1
+    endm
+
+
+// The macro `QSTUO` stores a quad-byte operand to RAM via pointer `uptr` using
+// the base+offset (i.e. displacement) addressing mode: RAM[uptr+B] = A. An
+// implicit 16-bit rotation of the operand to be stored is possible, i.e. the
+// macro can also perform an operation of the form RAM[uptr+B] = (A >>> 16).
+
+QSTUO macro a0, a1, b0, b1
+    mov.w   a0, b0(uptr)
+    mov.w   a1, b1(uptr)
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+////// MACROS FOR QUAD-BYTE (32-BIT) AND/XOR WITH ROTATION OF ONE OPERAND /////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `QROLADD` adds two quad-byte operands, whereby one operand is
+// rotated one bit left before the addition: A = A + (B <<< 1). Operand B is
+// not modified. An implicit rotation by 16 bits is possible, i.e. the macro
+// can also perform an operation of the form A = A + (B <<< 17).
+
+QROLADD macro b0, b1, a0, a1
+    // Move word B to temporary word T
+    mov.w   b0, t0
+    mov.w   b1, t1
+    // Rotate word T one bit left
+    rla.w   t0
+    rlc.w   t1
+    // Add rotated word T to word A
+    addc.w  t0, a0
+    addc.w  t1, a1
+    endm
+
+
+// The macro `QROLXOR` XORs two quad-byte operands, whereby one operand is
+// rotated one bit left before the XOR: A = A ^ (B <<< 1). Operand B is not
+// modified. An implicit rotation by 16 bits is possible, i.e. the macro can
+// also perform an operation of the form A = A ^ (B <<< 17).
+
+QROLXOR macro b0, b1, a0, a1
+    // Move word B to temporary word T
+    mov.w   b0, t0
+    mov.w   b1, t1
+    // Rotate word T one bit left
+    rla.w   t0
+    rlc.w   t1
+    adc.w   t0
+    // XOR rotated word T to word A
+    xor.w   t0, a0
+    xor.w   t1, a1
+    endm
+
+
+// The macro `QRORADD` adds two quad-byte operands, whereby one operand is
+// rotated one bit right before the addition: A = A + (B >>> 1). Operand B is
+// not modified. An implicit rotation by 16 bits is possible, i.e. the macro
+// can also perform an operation of the form A = A + (B >>> 17).
+
+QRORADD macro b0, b1, a0, a1
+    // Move word B to temporary word T
+    mov.w   b0, t0
+    mov.w   b1, t1
+    // Rotate word T one bit right
+    bit.w   #1, t0
+    rrc.w   t1
+    rrc.w   t0
+    // Add rotated word T to word A
+    add.w   t0, a0
+    addc.w  t1, a1
+    endm
+
+
+// The macro `QRORXOR` XORs two quad-byte operands, whereby one operand is
+// rotated one bit right before the XOR: A = A ^ (B >>> 1). Operand B is not
+// modified. An implicit rotation by 16 bits is possible, i.e. the macro can
+// also perform an operation of the form A = A ^ (B >>> 17).
+
+QRORXOR macro b0, b1, a0, a1
+    // Move word B to temporary word T
+    mov.w   b0, t0
+    mov.w   b1, t1
+    // Rotate word T one bit right
+    bit.w   #1, t0
+    rrc.w   t1
+    rrc.w   t0
+    // XOR rotated word T to word A
+    xor.w   t0, a0
+    xor.w   t1, a1
+    endm
+
+
+// The macro `QRR8ADD` adds two quad-byte operands, whereby one operand is
+// rotated 8 bits right before the addition: A = A + (B >>> 8). Operand B is
+// not modified. An implicit rotation by 16 bits is possible, i.e. the macro
+// can also perform an operation of the form A = A + (B >>> 24).
+
+QRR8ADD macro b0, b1, a0, a1
+    // Move B to T and rotate it 8 bits right
+    mov.b   b0, t0
+    xor.b   b1, t0
+    mov.w   t0, t1
+    xor.w   b0, t0
+    xor.w   b1, t1
+    swpb    t0
+    swpb    t1
+    // Add rotated word T to word A
+    add.w   t0, a0
+    addc.w  t1, a1
+    endm
+
+
+// The macro `QRR8XOR` XORs two quad-byte operands, whereby one operand is
+// rotated 8 bits right before the XOR: A = A ^ (B >>> 8). Operand B is not
+// modified. An implicit rotation by 16 bits is possible, i.e. the macro can
+// also perform an operation of the form A = A ^ (B >>> 24).
+
+QRR8XOR macro b0, b1, a0, a1
+    // Move B to T and rotate it 8 bits right
+    mov.b   b0, t0
+    xor.b   b1, t0
+    mov.w   t0, t1
+    xor.w   b0, t0
+    xor.w   b1, t1
+    swpb    t0
+    swpb    t1
+    // XOR rotated word T to word A
+    xor.w   t0, a0
+    xor.w   t1, a1
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+////////////////// HELPER MACROS FOR THE SPARKLE PERMUTATION //////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `PROLOGUE` pushes all callee-saved registers on the stack.
+
+PROLOGUE macro
+    push.w  r4
+    push.w  r5
+    push.w  r6
+    push.w  r7
+    push.w  r8
+    push.w  r9
+    push.w  r10
+    push.w  r11
+    endm
+
+
+// The macro `INITVARS` initializes the number of iterations of the branch-loop
+// (held in register `brans`) with $4*brans$ and pushes `brans` and `steps` on
+// the stack.
+
+INITVARS macro
+    mov.w   R13, brans
+    mov.w   R14, steps
+    rla.w   brans
+    rla.w   brans
+    push.w  brans
+    push.w  steps
+    endm
+
+
+// The macro `EPILOGUE` removes `brans` and `steps` from the stack (they were
+// pushed by macro `INITVARS`). Then, it pops all callee-saved registers from
+// the stack and returns to the caller.
+
+EPILOGUE macro
+    add.w   #4, sp
+    pop.w   r11
+    pop.w   r10
+    pop.w   r9
+    pop.w   r8
+    pop.w   r7
+    pop.w   r6
+    pop.w   r5
+    pop.w   r4
+    ret
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////////////////// MAIN MACROS FOR THE SPARKLE PERMUTATION ///////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `ADDRCON` XORs one of the round constants to state-word `y0` and
+// the step-counter to state-word `y1`.
+
+ADDRCON macro
+    // XOR step-counter to Y1
+    xor.w   scnt, 12(sptr)
+    // XOR round-constant to Y0
+    mov.w   #RCON, cptr
+    rla.w   scnt
+    rla.w   scnt
+    add.w   scnt, cptr
+    QXOR    0(cptr),2(cptr), 4(sptr),6(sptr)
+    sub.w   scnt, cptr
+    endm
+
+
+// The macro `ARXBOX` computes the ARX-box Alzette. This implementation has an
+// execution time of 57 clock cycles on an MSP430F1611 microcontroller.
+
+ARXBOX macro
+    QROLADD y0,y1, x0,x1    // X = X + (Y >>> 31)
+    QRR8XOR x1,x0, y0,y1    // Y = Y ^ (X >>> 24)
+    QXOR    c0,c1, x0,x1    // X = X ^ RCON
+    QRORADD y1,y0, x0,x1    // X = X + (Y >>> 17)
+    QRORXOR x1,x0, y0,y1    // Y = Y ^ (X >>> 17)
+    QXOR    c0,c1, x0,x1    // X = X ^ RCON
+    QADD    y0,y1, x0,x1    // X = X + (Y >>> 0)
+    QROLXOR x0,x1, y0,y1    // Y = Y ^ (X >>> 31)
+    QXOR    c0,c1, x0,x1    // X = X ^ RCON
+    QRR8ADD y1,y0, x0,x1    // X = X + (Y >>> 24)
+    QXOR    x1,x0, y0,y1    // Y = Y ^ (X >>> 16)
+    QXOR    c0,c1, x0,x1    // X = X ^ RCON
+    endm
+
+
+// The macro `ARXLAYER` computes `brans` instances of the ARX-box Alzette and
+// also includes a part of the linear layer. This implementation differs from
+// the corresponding C version because the computation of the temporary values
+// `tx` and `ty` (held in the quad-byte register tx0,ty0 and in sy0,sy1 on the
+// stack) is included. The two `QXOR` operations to compute `tx` and `ty` are
+// only carried out in the first ARX-loop, i.e. while processing the left-side
+// branches. Each state-word is loaded from RAM once and written back to RAM
+// also once.
+
+ARXLAYER macro
+    mov.w   4(sp), bcnt     // set loop-counter bcnt to 4*brans
+    QMOV    #0,#0, tx0,tx1  // set temporary value TX to 0
+    QPUSH   #0,#0           // set temporary value SY (on stack) to 0
+    push.w  bcnt            // push loop-counter on stack (we need registers!)
+    // At loop-start, pointer `sptr` contains the address of `state[0]` and
+    // pointer `cptr` the address of `RCON[0]`. The loop-counter `bcnt` is set
+    // to $4*brans$ and decremented by 8 in each iteration.
+ARXLOOP1:                   // start of the first arxbox-loop
+    QLDCI   c0,c1           // load round constant RCON[j/2] to c0,c1
+    QLDSI   x0,x1           // load state[j] to x0,x1
+    QLDSI   y0,y1           // load state[j+1] to y0,y1
+    ARXBOX                  // ARX-box: state[j], state[j+1], RCON[j/2]
+    QSTSO   x0,x1, -8,-6    // store x0,x1 to state[j]
+    QSTSO   y0,y1, -4,-2    // store y0,y1 to state[j+1]
+    QXOR    x0,x1, tx0,tx1  // tx0,tx1 ^= state[j] (tx0,tx1 contains TX!)
+    QXOR    y0,y1, sy0,sy1  // sy0,sy1 ^= state[+1j] (sy0,sy1 contains TY!)
+    sub.w   #8, 0(sp)       // decrement loop-counter by 8
+    jnz     ARXLOOP1        // jump back to start of loop if loop-counter == 0
+    mov.w   10(sp), 0(sp)   // set loop-counter bcnt to 4*brans
+    // At loop-start, pointer `sptr` contains the address of `state[brans]` and
+    // pointer `cptr` the address of `RCON[brans/2]`. The loop-counter `bcnt`
+    // is set to $4*brans$ and decremented by 8 in each iteration.
+ARXLOOP2:                   // start of the second arxbox-loop
+    QLDCI   c0,c1           // load round constant RCON[j/2] to c0,c1
+    QLDSI   x0,x1           // load state[j] to x0,x1
+    QLDSI   y0,y1           // load state[j+1] to y0,y1
+    ARXBOX                  // ARX-box: state[j], state[j+1], RCON[j/2]
+    QSTSO   x0,x1, -8,-6    // store x0,x1 to state[j]
+    QSTSO   y0,y1, -4,-2    // store y0,y1 to state[j+1]
+    sub.w   #8, 0(sp)       // decrement loop-counter by 8
+    jnz     ARXLOOP2        // jump back to start of loop if loop-counter != 0
+    // At loop-end, pointer `sptr` contains the address of `state[2*brans]` and
+    // pointer `cptr` the address of `RCON[brans]`.
+    add.w   #2, sp          // remove loop-counter from stack
+    QPOP    ty0,ty1         // pop sy0,sy1 from stack into ty0,ty1
+    mov.w   4(sp), brans    // restore original value of register brans
+    sub.w   brans, sptr     // set pointer sptr to address of state[brans]
+    sub.w   brans, sptr     // set pointer sptr to address of state[0]
+    endm
+
+
+// The macro `LINLAYER` computes the linear diffusion layer, which consists of
+// the Feistel function $\mathcal{M}_3$ and a special Feistel swap (including a
+// 1-branch left rotation of the right-side branches).
+
+LINLAYER macro
+    xor.w   tx0, tx1        // perform part of ell operation on TX
+    xor.w   ty0, ty1        // perform part of ell operation on TY
+    QLDSI   c0,c1           // load state[0] (i.e. word X0) to c0,c1
+    QLDSI   y0,y1           // load state[1] (i.e. word Y0) to y0,y1
+    QPUSH   y0,y1           // push word Y0 on the stack (we need registers)
+    mov.w   sptr, uptr      // set pointer uptr to address of state[2]
+    add.w   brans, uptr     // set pointer uptr to address of state[brans+2]
+    sub.w   #8, bcnt        // first iteration of the loop is peeled off
+    push    bcnt            // push loop-counter on stack (we need registers!)
+    // At loop-start, pointer `sptr` contains the address of `state[2]` and
+    // pointer `uptr` the address of `state[brans+2]`. The loop-counter `bcnt`
+    // is set to $4*brans-8$ and decremented by 8 in each iteration.
+LINLOOP:                    // start of the linear-loop
+    QLDUI   x0,x1           // load state[j+brans] to x0,x1
+    QXOR    ty1,ty0, x0,x1  // x0,x1 = state[j+brans] ^ TY (implicit rotation!)
+    QLDSI   y0,y1           // load state[j] to y0,y1
+    QXOR    y0,y1, x0,x1    // x0,x1 = (state[j+brans] ^ TY) ^ state[j]
+    QSTUO   y0,y1, -4,-2,   // store y0,y1 to state[j+brans]
+    QSTSO   x0,x1, -12,-10  // store x0,x1 to state[j-2]
+    QLDUI   x0,x1           // load state[j+brans+1] to x0,x1
+    QXOR    tx1,tx0, x0,x1  // x0,x1 = state[j+brans+1] ^ TX (implicit rot!)
+    QLDSI   y0,y1           // load state[j+1] to y0,y1
+    QXOR    y0,y1, x0,x1    // x0,x1 = (state[j+brans+1] ^ TX) ^ state[j+1]
+    QSTUO   y0,y1, -4,-2    // store x0,x1 to state[j+brans+1]
+    QSTSO   x0,x1, -12,-10  // store y0,y1 to state[j-1]
+    sub.w   #8, 0(sp)       // decrement loop-counter by 8
+    jnz     LINLOOP         // jump back to start of loop if loop-counter != 0
+    // At loop-end, pointer `uptr` contains the address of `state[2*brans]` and
+    // pointer `sptr` the address of `state[brans]`.
+    add.w   #2, sp          // remove loop-counter bcnt from stack
+    mov.w   sptr, uptr      // set uptr to address of state[brans]
+    QLDUI   x0,x1           // load state[brans] to x0,x1
+    QXOR    ty1,ty0, x0,x1  // x0,x1 = state[brans] ^ TY (implicit rotation!)
+    QXOR    c0,c1, x0,x1    // x0,x1 = (state[brans] ^ TY) ^ X0
+    QSTUO   c0,c1, -4,-2    // store c0,c1 (containing X0) to state[brans]
+    QSTUO   x0,x1, -12,-10  // store x0,x1 to state[brans-2]
+    QLDUI   x0,x1           // load state[brans+1] to x0,x1
+    QXOR    tx1,tx0, x0,x1  // x0,x1 = state[brans+1] ^ TX (implicit rotation!)
+    QPOP    c0,c1           // pop word Y0 from stack into c0,c1
+    QXOR    c0,c1, x0,x1    // x0,x1 = (state[brans+1] ^ TX) ^ Y0
+    QSTUO   c0,c1, -4,-2    // store c0,c1 (containing Y0) to state[brans+1]
+    QSTUO   x0,x1, -12,-10  // store x0,x1 to state[brans-1]
+    sub.w   4(sp), sptr     // set pointer sptr to address of state[0]
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////// SPARKLE PERMUTATION /////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+align 2
+public sparkle_msp
+sparkle_msp:
+    PROLOGUE                // push callee-saved registers
+    INITVARS                // initialize local variables
+    clr scnt                // clear step-counter
+STEPLOOP:                   // start of step-loop
+    push.w scnt             // push step-counter on stack (we need registers!)
+    ADDRCON                 // macro for addition of round constant
+    ARXLAYER                // macro for complete ARX-box layer
+    LINLAYER                // macro for complete linear layer
+    pop.w scnt              // pop step-counter from stack
+    inc.w scnt              // increment step-counter
+    cmp.w scnt, 0(sp)       // check whether the step-counter equals steps
+    jne STEPLOOP            // if not then jump back to start of loop
+    EPILOGUE                // pop callee-saved registers and return
+
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////// ROUND CONSTANTS FOR SPARKLE /////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// http://cnx.org/contents/2JvCv1P9@6/Assembly-Programming-Part-1
+// http://www.embeddedrelated.com/showthread/msp430/40394-1.php
+// http://wwwfiles.iar.com/msp430/webic/doc/EW430_CompilerReference.pdf
+
+rseg DATA16_C:DATA:REORDER:NOROOT(2)
+
+RCON:
+    DC32 0xB7E15162, 0xBF715880, 0x38B4DA56, 0x324E7738
+    DC32 0xBB1185EB, 0x4F7C7B57, 0xCFBFA1C8, 0xC2B3293D
+    DC32 0xB7E15162, 0xBF715880, 0x38B4DA56, 0x324E7738
+
+
+end
