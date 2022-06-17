@@ -495,7 +495,7 @@ ROUNDLOOP:                  // start of round-loop
     RHOWEST                 // macro for plane-shifting layer $\rho_{west]$
     IOTA                    // macro for addition of round-constant
     CHI                     // macro for non-linear layer $\chi$
-    RHOEAST                 // macro for  plane-shifting layer $\rho_{west]$
+    RHOEAST                 // macro for plane-shifting layer $\rho_{east]$
     sub.w #2, 0(sp)         // decrement round-counter (on stack!) by 2
     jnz ROUNDLOOP           // jump back to start of loop if round-counter != 0
     EPILOGUE                // pop callee-saved registers and return
