@@ -156,17 +156,7 @@ QROL macro a0, a1
     endm
 
 
-// The macro `QROR` rotates a quad-byte operand one bit right, whereby the
-// rotation is performed in place: A = A >>> 1.
-
-QROR macro a0, a1
-    bit.w   #1, a0
-    rrc.w   a1
-    rrc.w   a0
-    endm
-
-
-// The macro `QROL8` rotates a quad-byte operand 8 bits left, whereby the
+// The macro `QROL8` rotates a quad-byte operand eight bits left, whereby the
 // rotation is performed in place: A = A <<< 8. This macro requires a temporary
 // register `tr`.
 
@@ -180,7 +170,17 @@ QROL8 macro a0, a1
     endm
 
 
-// The macro `QROR8` rotates a quad-byte operand 8 bits right, whereby the
+// The macro `QROR` rotates a quad-byte operand one bit right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+QROR macro a0, a1
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `QROR8` rotates a quad-byte operand eight bits right, whereby the
 // rotation is performed in place: A = A >>> 8. This macro requires a temporary
 // register `tr`.
 
