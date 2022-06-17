@@ -22,7 +22,7 @@
 // Parameters:
 // -----------
 // `state`: pointer to an uint32_t-array containing 12 state-words
-// `rounds`: number of rounds (usually 12)
+// `rounds`: number of rounds (normally 12)
 //
 // Return value:
 // -------------
