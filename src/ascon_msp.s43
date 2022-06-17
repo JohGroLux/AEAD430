@@ -72,7 +72,7 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 #define sptr r12
 // register holding the number of rounds
 #define rounds r13
-// register for loop-counter for sbox layer
+// register for loop-counter of sbox layer
 #define scnt r14
 // temporary register for 8-bit rotations
 #define tr r14
@@ -81,7 +81,7 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 
 
 ///////////////////////////////////////////////////////////////////////////////
-///// MACROS FOR OCTA-BYTE ARITHMETIC/LOGICAL OPERATIONS AND LOADS/STORES /////
+/////// MACROS FOR OCTA-BYTE (64-BIT) ARITHMETIC AND LOGICAL OPERATIONS  //////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -97,7 +97,7 @@ OMOV macro b0, b1, b2, b3, a0, a1, a2, a3
     endm
 
 
-// The macro `OROL` rotates an octa-byte operand 1 bit left, whereby the
+// The macro `OROL` rotates an octa-byte operand one bit left, whereby the
 // rotation is performed in place: A = A <<< 1.
 
 OROL macro a0, a1, a2, a3
@@ -109,19 +109,46 @@ OROL macro a0, a1, a2, a3
     endm
 
 
-// The macro `OROR` rotates an octa-byte operand 1 bit right, whereby the
-// rotation is performed in place: A = A >>> 1.
+// The macro `OROL2` rotates an octa-byte operand two bits left, whereby the
+// rotation is performed in place: A = A <<< 1.
 
-OROR macro a0, a1, a2, a3
-    bit.w   #1, a0
-    rrc.w   a3
-    rrc.w   a2
-    rrc.w   a1
-    rrc.w   a0
+OROL2 macro a0, a1, a2, a3
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
     endm
 
 
-// The macro `OROL8` rotates an octa-byte operand 8 bits left, whereby the
+// The macro `OROL3` rotates an octa-byte operand three bits left, whereby the
+// rotation is performed in place: A = A <<< 1.
+
+OROL3 macro a0, a1, a2, a3
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    endm
+
+
+// The macro `OROL8` rotates an octa-byte operand eight bits left, whereby the
 // rotation is performed in place: A = A <<< 8. This macro requires a temporary
 // register `tr`.
 
@@ -149,7 +176,58 @@ OROL8 macro a0, a1, a2, a3
     endm
 
 
-// The macro `OROR8` rotates an octa-byte operand 8 bits right, whereby the
+// The macro `OROR` rotates an octa-byte operand one bit right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+OROR macro a0, a1, a2, a3
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `OROR2` rotates an octa-byte operand two bits right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+OROR2 macro a0, a1, a2, a3
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `OROR3` rotates an octa-byte operand three bits right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+OROR3 macro a0, a1, a2, a3
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `OROR8` rotates an octa-byte operand eight bits right, whereby the
 // rotation is performed in place: A = A >>> 8. This macro requires a temporary
 // register `tr`.
 
@@ -187,6 +265,11 @@ OXOR macro b0, b1, b2, b3, a0, a1, a2, a3
     xor.w   b2, a2
     xor.w   b3, a3
     endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+///////// MACROS FOR LOADING AND STORING AN OCTA-BYTE (64-BIT) OPERAND ////////
+///////////////////////////////////////////////////////////////////////////////
 
 
 // Note: The MSP430 architecture uses little-endian memory format, which means
@@ -269,10 +352,10 @@ EPILOGUE macro
     endm
 
 
-// The macro `INITVARS` initializes local variables.
+// The macro `INITVARS` initializes local variables (the initial RCON value is
+// 15*rounds + 0x3C = (rounds << 4) - rounds + 0x3C).
 
 INITVARS macro
-    // initial RCON = 15*rounds + 0x3C
     mov.w   rounds, rcon
     rla.w   rcon
     rla.w   rcon
@@ -374,9 +457,7 @@ SBOXLOOP:
 LINSWX0 macro
     OLDSI   l0,l1,l2,l3                 // load X0
     OMOV    l0,l1,l2,l3, t0,t1,t2,t3    // T = X0
-    OROR    t0,t1,t2,t3                 // T = T >>> 1
-    OROR    t0,t1,t2,t3                 // T = T >>> 1
-    OROR    t0,t1,t2,t3                 // T = T >>> 1
+    OROR3   t0,t1,t2,t3                 // T = T >>> 3
     OXOR    t1,t2,t3,t0, l0,l1,l2,l3    // X0 = X0 ^ (T >>> 16)
     OROR    t0,t1,t2,t3                 // T = T >>> 1
     OROR8   t0,t1,t2,t3                 // T = T >>> 8
@@ -391,9 +472,7 @@ LINSWX0 macro
 LINSWX1 macro
     OLDSI   l0,l1,l2,l3                 // load X1
     OMOV    l0,l1,l2,l3, t0,t1,t2,t3    // T = X1
-    OROL    l0,l1,l2,l3                 // X1 = X1 <<< 1
-    OROL    l0,l1,l2,l3                 // X1 = X1 <<< 1
-    OROL    l0,l1,l2,l3                 // X1 = X1 <<< 1
+    OROL3   l0,l1,l2,l3                 // X1 = X1 <<< 3
     OXOR    t0,t1,t2,t3, l0,l1,l2,l3    // X1 = X1 ^ T
     OROR8   t0,t1,t2,t3                 // T = T >>> 8
     OROL    t0,t1,t2,t3                 // T = T <<< 1
@@ -411,8 +490,7 @@ LINSWX2 macro
     OROR    t0,t1,t2,t3                 // T = T >>> 1
     OXOR    l0,l1,l2,l3, t0,t1,t2,t3    // T = T ^ X2
     OROR8   l0,l1,l2,l3                 // X2 = X2 >>> 8
-    OROL    l0,l1,l2,l3                 // X2 = X2 <<< 1
-    OROL    l0,l1,l2,l3                 // X2 = X2 <<< 1
+    OROL2   l0,l1,l2,l3                 // X2 = X2 <<< 2
     OXOR    t0,t1,t2,t3, l0,l1,l2,l3    // X2 = X2 ^ T
     OSTSO   l0,l1,l2,l3, -8,-6,-4,-2    // store X2
     endm
@@ -442,8 +520,7 @@ LINSWX4 macro
     OROR8   t0,t1,t2,t3                 // T = T >>> 8
     OROL    t0,t1,t2,t3                 // T = T <<< 1
     OXOR    t0,t1,t2,t3, l0,l1,l2,l3    // X4 = X4 ^ T
-    OROR    t0,t1,t2,t3                 // T = T >>> 1
-    OROR    t0,t1,t2,t3                 // T = T >>> 1
+    OROR2   t0,t1,t2,t3                 // T = T >>> 2
     OXOR    t2,t3,t0,t1, l0,l1,l2,l3    // X4 = X4 ^ (T >>> 32)
     OSTSO   l0,l1,l2,l3, -8,-6,-4,-2    // store X4
     endm

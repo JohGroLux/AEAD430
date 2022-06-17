@@ -1,0 +1,516 @@
+///////////////////////////////////////////////////////////////////////////////
+// xoodoo_msp.s43: MSP430 Asm implementation (ICC) of Xoodoo permutation.    //
+// Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
+// License: GPLv3 (see LICENSE file), other licenses available upon request. //
+// ------------------------------------------------------------------------- //
+// This source code is free software: you can redistribute it and/or modify  //
+// it under the terms of the GNU General Public License as published by the  //
+// Free Software Foundation, either version 3 of the License, or (at your    //
+// option) any later version. This source code is distributed in the hope    //
+// that it will be useful, but WITHOUT ANY WARRANTY; without even the        //
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  //
+// See the GNU General Public License for more details. You should have      //
+// received a copy of the GNU General Public License along with this source  //
+// code. If not, see <http://www.gnu.org/licenses/>.                         //
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Function prototype:
+// -------------------
+// void xoodoo_msp(uint32_t *state, int rounds)
+//
+// Parameters:
+// -----------
+// `state`: pointer to an uint32_t-array containing 12 state-words
+// `rounds`: number of rounds (usually 12)
+//
+// Return value:
+// -------------
+// None
+
+
+name xoodoo                 // module name
+rseg CODE(2)                // place module in 'CODE' segment with alignment 4
+
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////////// REGISTER NAMES AND CONSTANTS /////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+MAXROUNDS equ 12
+
+
+// Two MSP registers form a Quad-byte Register (QR) that can store a 32-bit
+// operand, whereby little-endian format is used, i.e. the least-significant
+// half of the 32-bit operand is in the lowest register.
+
+// Five octa-byte registers for state-words
+#define q0l r4
+#define q0h r5
+#define q1l r6
+#define q1h r7
+#define q2l r8
+#define q2h r9
+#define q3l r10
+#define q3h r11
+#define q4l r14
+#define q4h r15
+
+// pointer to array containing the state
+#define sptr r12
+// register holding the number of rounds
+#define rounds r13
+// register for loop-counter of theta/chi
+#define lcnt r13
+// temporary register for 8-bit rotations
+#define tr r14
+// pointer to array with round constants
+#define cptr r15
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////// MACROS FOR QUAD-BYTE (32-BIT) ARITHMETIC AND LOGICAL OPERATIONS  //////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `QADD` arithmetically adds two quad-byte operands: A = A + B. An
+// implicit 16-bit rotation of operand B is possible, i.e. the macro can also
+// perform an operation of the form A = A + (B >>> 16).
+
+QADD macro b0, b1, a0, a1
+    add.w   b0, a0
+    addc.w  b1, a1
+    endm
+
+
+// The macro `QAND` bitwise ANDs two quad-byte operands: A = A & B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A ^ (B >>> 16).
+
+QAND macro b0, b1, a0, a1
+    and.w   b0, a0
+    and.w   b1, a1
+    endm
+
+
+// The macro `QBIC` bitwise clears a quad-byte operand: A = A & ~B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A ^ (~B >>> 16).
+
+QBIC macro b0, b1, a0, a1
+    bic.w   b0, a0
+    bic.w   b1, a1
+    endm
+
+
+// The macro `QIOR` bitwise ORs two quad-byte operands: A = A | B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A | (B >>> 16).
+
+QIOR macro b0, b1, a0, a1
+    bis.w   b0, a0
+    bis.w   b1, a1
+    endm
+
+
+// The macro `QXOR` bitwise XORs two quad-byte operands: A = A ^ B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A ^ (B >>> 16).
+
+QXOR macro b0, b1, a0, a1
+    xor.w   b0, a0
+    xor.w   b1, a1
+    endm
+
+
+// The macro `QMOV` moves a quad-byte operand: A = B.
+
+QMOV macro b0, b1, a0, a1
+    mov.w   b0, a0
+    mov.w   b1, a1
+    endm
+
+
+// The macro `QINV` bitwise inverts a quad-byte operand, whereby the inversion
+// is performed in place: A = ~A.
+
+QINV macro a0, a1
+    inv.w   a0
+    inv.w   a1
+    endm
+
+
+// The macro `QROL` rotates a quad-byte operand one bit left, whereby the
+// rotation is performed in place: A = A <<< 1.
+
+QROL macro a0, a1
+    rla.w   a0
+    rlc.w   a1
+    adc.w   a0
+    endm
+
+
+// The macro `QROL8` rotates a quad-byte operand eight bits left, whereby the
+// rotation is performed in place: A = A <<< 8. This macro requires a temporary
+// register `tr`.
+
+QROL8 macro a0, a1
+    swpb    a0
+    swpb    a1
+    mov.b   a0, tr
+    xor.b   a1, tr
+    xor.w   tr, a0
+    xor.w   tr, a1
+    endm
+
+
+// The macro `QROR` rotates a quad-byte operand one bit right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+QROR macro a0, a1
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `QROR2` rotates a quad-byte operand two bits right, whereby the
+// rotation is performed in place: A = A >>> 2.
+
+QROR2 macro a0, a1
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `QROR5` rotates a quad-byte operand five bits right, whereby the
+// rotation is performed in place: A = A >>> 5.
+
+QROR5 macro a0, a1
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `QROR8` rotates a quad-byte operand eight bits right, whereby the
+// rotation is performed in place: A = A >>> 8. This macro requires a temporary
+// register `tr`.
+
+QROR8 macro a0, a1
+    mov.b   a0, tr
+    xor.b   a1, tr
+    xor.w   tr, a0
+    xor.w   tr, a1
+    swpb    a0
+    swpb    a1
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+///////// MACROS FOR LOADING AND STORING A QUAD-BYTE (32-BIT) OPERAND /////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Note: The MSP430 architecture uses little-endian memory format, which means
+// the least-significant byte of a 32-bit word is at the lowest address.
+
+
+// The macro `QLDCI` loads a quad-byte operand from RAM via pointer `cptr`
+// using the post-increment addressing mode: A = RAM[cptr++]. An implicit
+// 16-bit rotation of the loaded operand is possible, i.e. the macro can also
+// perform an operation of the form A = RAM[cptr++] >>> 16.
+
+QLDCI macro a0, a1
+    mov.w   @cptr+, a0
+    mov.w   @cptr+, a1
+    endm
+
+
+// The macro `QLDCO` loads a quad-byte operand from RAM via pointer `cptr`
+// using the base+offset (i.e. displacement) addressing mode: A = RAM[cptr+B].
+// An implicit 16-bit rotation of the loaded operand is possible, i.e. the
+// macro can also perform an operation of the form A = RAM[cptr+B] >>> 16.
+
+QLDCO macro b0, b1 a0, a1
+    mov.w   b0(cptr), a0
+    mov.w   b1(cptr), a1
+    endm
+
+
+// The macro `QLDSI` loads a quad-byte operand from RAM via pointer `sptr`
+// using the post-increment addressing mode: A = RAM[sptr++]. An implicit
+// 16-bit rotation of the loaded operand is possible, i.e. the macro can also
+// perform an operation of the form A = RAM[sptr++] >>> 16.
+
+QLDSI macro a0, a1
+    mov.w   @sptr+, a0
+    mov.w   @sptr+, a1
+    endm
+
+
+// The macro `QLDSO` loads a quad-byte operand from RAM via pointer `sptr`
+// using the base+offset (i.e. displacement) addressing mode: A = RAM[sptr+B].
+// An implicit 16-bit rotation of the loaded operand is possible, i.e. the
+// macro can also perform an operation of the form A = RAM[sptr+B] >>> 16.
+
+QLDSO macro b0, b1, a0, a1
+    mov.w   b0(sptr), a0
+    mov.w   b1(sptr), a1
+    endm
+
+
+// The macro `QSTSO` stores a quad-byte operand to RAM via pointer `sptr` using
+// the base+offset (i.e. displacement) addressing mode: RAM[sptr+B] = A. An
+// implicit 16-bit rotation of the operand to be stored is possible, i.e. the
+// macro can also perform an operation of the form RAM[sptr+B] = (A >>> 16).
+
+QSTSO macro a0, a1, b0, b1
+    mov.w   a0, b0(sptr)
+    mov.w   a1, b1(sptr)
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////////////////// HELPER MACROS FOR THE XOODOO PERMUTATION //////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `PROLOGUE` pushes all callee-saved registers on the stack.
+
+PROLOGUE macro
+    push.w  r4
+    push.w  r5
+    push.w  r6
+    push.w  r7
+    push.w  r8
+    push.w  r9
+    push.w  r10
+    push.w  r11
+    endm
+
+
+// The macro `INITVARS` initializes the number of rounds (held in register
+// `rounds`) with $2*rounds$ (to simplify the address arithmetic in the `IOTA`
+// macro) and pushes `rounds` on the stack.
+
+INITVARS macro
+    add.w   rounds, rounds
+    push    rounds
+    endm
+
+
+// The macro `EPILOGUE` removes `rounds` from the stack (it was pushed by macro
+// `INITVARS`). Then, it pops all callee-saved registers from the stack and
+// returns to the caller.
+
+EPILOGUE macro
+    add     #2, sp
+    pop.w   r11
+    pop.w   r10
+    pop.w   r9
+    pop.w   r8
+    pop.w   r7
+    pop.w   r6
+    pop.w   r5
+    pop.w   r4
+    ret
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////// MAIN MACROS FOR THE XOODOO PERMUTATION ///////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `THETA` implements the mixing layer $\theta$ and also includes a
+// part of the subsequent plane-shifting layer $\rho_{west]$. This part is the
+// 11-bit rotation of the four lanes of the top plane $A_2$, i.e. the operation
+// $A_2 \leftarrow A_2 \lll (0,11)$. Each lane (with one exception) is loaded
+// from RAM exactly once and written back to RAM also once. The only exception
+// is the lane $A(x,y) = A(0,2)$, i.e. the state-word `a[8]`, which has to be
+// loaded twice from RAM due to the limited register space.
+
+THETA macro
+    QLDSI   q0l,q0h             // load word a[0] to QR0
+    QLDSO   12,14, q1l,q1h      // load word a[4] to QR1
+    QLDSO   28,30, q3l,q3h      // load word a[8] to QR3
+    QXOR    q1l,q1h, q3l,q3h    // QR3 = QR3 ^ QR1 (p[0] = a[8] ^ a[4])
+    QXOR    q0l,q0h, q3l,q3h    // QR3 = QR3 ^ QR0 (p[0] = p[0] ^ a[0])
+    QROR2   q3l,q3h             // QR3 = (QR3 >>> 2) (p[0] = (p[0] >>> 2))
+    QMOV    q3h,q3l, q2l,q2h    // QR2 = (QR3 <<< 16) (e[1] = (p[0] <<< 16))
+    QROR    q3l,q3h             // QR3 = (QR3 >>> 1) (p[0] = (p[0] >>> 1))
+    QROL8   q3l,q3h             // QR3 = (QR3 <<< 8) (p[0] = (p[0] <<< 8))
+    QXOR    q3l,q3h, q2l,q2h    // QR2 = QR2 ^ QR3 (e[1] = e[1] ^ p[0])
+    mov.w   #3, lcnt            // initialize loop-counter with 3
+    // At loop-start, pointer `sptr` contains the address of state-word `a[1]`.
+THETALOOP:                      // start of the theta loop
+    QLDSI   q3l,q3h             // load word a[i] to QR3
+    QLDSO   12,14, q4l,q4h      // load word a[i+4] to QR4
+    QXOR    q2l,q2h, q3l,q3h    // QR3 = QR3 ^ QR2 (a[i] = a[i] ^ e[i])
+    QXOR    q2l,q2h, q4l,q4h    // QR4 = QR4 ^ QR2 (a[i+4] = a[i+4] ^ e[i])
+    QSTSO   q3l,q3h, -4,-2      // store QR3 to word a[i]
+    QSTSO   q4l,q4h, 12,14      // store QR4 to word a[i+4]
+    QXOR    q3l,q3h, q4l,q4h    // QR4 = QR4 ^ QR3 (p[i] = a[i] ^ a[i+4])
+    QLDSO   28,30, q3l,q3h      // load word a[i+8] to QR3
+    QXOR    q3l,q3h, q2l,q2h    // QR2 = QR2 ^ QR3 (a[i+8] = e[i] ^ a[i+8])
+    QROR5   q2l,q2h             // QR2 = (QR2 >>> 5) (a[i+8] >>>= 5) (RHO!)
+    QSTSO   q2h,q2l, 28,30      // store (QR2 <<< 16) (RHO!) to word a[i+8]
+    QXOR    q4l,q4h, q3l,q3h    // QR3 = QR3 ^ QR4 (p[i] = p[i] ^ a[a+8])
+    QROR2   q3l,q3h             // QR3 = (QR3 >>> 2) (p[i] = (p[i] >>> 2))
+    QMOV    q3h,q3l, q2l,q2h    // QR2 = (QR3 <<< 16) (e[i+1] = (p[i] <<< 16))
+    QROR    q3l,q3h             // QR3 = (QR3 >>> 1) (p[i] = (p[i] >>> 1))
+    QROL8   q3l,q3h             // QR3 = (QR3 <<< 8) (p[i] = (p[i] <<< 8))
+    QXOR    q3l,q3h, q2l,q2h    // QR2 = QR2 ^ QR3 (e[i+1] = e[i+1] ^ p[i])
+    dec.w   lcnt                // decrement loop-counter
+    jnz     THETALOOP           // jump back to start of loop if lcnt != 0
+    // At loop-end, pointer `sptr` contains the address of state-word `a[4]`.
+    QXOR    q2l,q2h, q0l,q0h    // QR0 = QR0 ^ QR2 (a[0] = a[0] ^ e[3])
+    QXOR    q2l,q2h, q1l,q1h    // QR1 = QR1 ^ QR3 (a[4] = a[4] ^ e[3])
+    QLDSO   16,18, q3l,q3h      // load word a[8] to QR3
+    QXOR    q3l,q3h, q2l,q2h    // QR2 = QR2 ^ QR3 (a[8] = a[8] ^ e[3])   
+    QSTSO   q0l,q0h, -16,-14    // store QR0 to word a[0]
+    QSTSO   q1l,q1h, 0,2        // store QR1 to word a[4]
+    QROR5   q2l,q2h             // QR2 = (QR2 >>> 5) (a[8] >>>= 5) (RHO!)
+    QSTSO   q2h,q2l, 16,18      // store (QR2 <<< 16) (RHO!) to word a[8]
+    endm
+
+
+// The macro `RHOWEST` implements a part of the first plane-shifting layer
+// $\rho_{west]$, namely the lane-wise rotation of the middle plane $A_1$, i.e.
+// the operation $A_1 \leftarrow A_1 \lll (1,0)$. Each lane of the middle plane
+// is loaded from RAM exactly once and written back to RAM also once.
+
+RHOWEST macro
+    QLDSI   q0l,q0h             // load word a[4] to QR0
+    QLDSI   q1l,q1h             // load word a[5] to QR1
+    QLDSI   q2l,q2h             // load word a[6] to QR2
+    QLDSI   q3l,q3h             // load word a[7] to QR3
+    sub.w   #32, sptr           // set sptr to address of a[0]
+    QSTSO   q3l,q3h, 16,18      // store QR3 (a[7]) to word a[4]
+    QSTSO   q0l,q0h, 20,22      // store QR0 (a[4]) to word a[5]
+    QSTSO   q1l,q1h, 24,26      // store QR1 (a[5]) to word a[6]
+    QSTSO   q2l,q2h, 28,30      // store QR2 (a[6]) to word a[7]
+    endm
+
+
+// The macro `IOTA` adds (i.e. XORs) a 16-bit round constant to plane $A_0$
+// (more concretely to lane $A(x,y) = A(0,0)$, i.e. the state-word `a[0]`).
+
+IOTA macro
+    mov.w   #RCON, cptr         // set cptr to address of RCON[0] 
+    add.w   #2*MAXROUNDS, cptr  // add 2*MAXROUNDS to cptr
+    sub.w   0(sp), cptr         // subtract 2*rounds (on stack!) from cptr
+    xor.w   @cptr, 0(sptr)      // XOR RCON[MAXROUNDS-i] to state-word a[0]
+    endm
+
+
+// The macro `CHI` implements the non-linear layer $\chi$ and also includes
+// parts of the subsequent plane-shifting layer $\rho_{east]$. These parts are
+// the 1-bit rotation of the four lanes of the middle plane $A_1$, i.e. the
+// i.e. the operation $A_1 \leftarrow A_1 \lll (0,1)$, and the 8-bit rotation
+// of the four lanes of the top plane $A_2$, which is itself a part of the
+// operation $A_2 \leftarrow A_2 \lll (2,8)$. Note that the latter operation
+// also includes a line-wise rotation of the top plane by two lanes, which is
+// not included in this macro but the subsequent `RHOEAST` macro. Each lane is
+// loaded from RAM exactly once and written back to RAM also once.
+
+CHI macro
+    mov.w   #4, lcnt            // initialize loop-counter with 4
+    // At loop-start, pointer `sptr` contains the address of state-word `a[0]`.
+CHILOOP:                        // start of the chi loop
+    QLDSI   q0l,q0h             // load word a[i] to QR0
+    QLDSO   12,14, q1l,q1h      // load word a[i+4] to QR1
+    QLDSO   28,30, q2l,q2h      // load word a[i+8] to QR2
+    QMOV    q2l,q2h, q3l,q3h    // QR3 = QR2 (b[i] = a[i+8])
+    QBIC    q1l,q1h, q3l,q3h    // QR3 = ~QR1 & QR3 (b[i] = b[i] & ~a[i+4])
+    QXOR    q0l,q0h, q3l,q3h    // QR3 = QR3 ^ QR0 (b[i] = b[i] ^ a[i])
+    QMOV    q0l,q0h, q4l,q4h    // QR4 = QR0 (b[i+4] = a[i])
+    QBIC    q2l,q2h, q4l,q4h    // QR4 = ~QR2 & QR4 (b[i+4] = b[i+4] & ~a[i+8])
+    QXOR    q1l,q1h, q4l,q4h    // QR4 = QR4 ^ QR1 (b[i+4] = b[i+4] ^ a[i+4])
+    QBIC    q0l,q0h, q1l,q1h    // QR1 = ~QR0 & QR1 (b[i+8] = a[i+4] & ~a[i])
+    QXOR    q2l,q2h, q1l,q1h    // QR1 = QR1 ^ QR2 (b[i+8] = b[i+8] ^ a[i+8])
+    QSTSO   q3l,q3h, -4,-2      // store QR3 (b[i]) to word a[i]
+    QROL    q4l,q4h             // QR4 = (QR4 <<< 1) (b[i+4] <<<= 1) (RHO!)
+    QSTSO   q4l,q4h, 12,14      // store QR4 (b[i+4]) to word a[i+4]
+    QROL8   q1l,q1h             // QR1 = (QR1 <<< 8) (b[i+8] <<<= 8) (RHO!)
+    QSTSO   q1l,q1h, 28,30      // store QR1 (b[i+8]) to word a[i+8]
+    dec.w   lcnt                // decrement loop-counter
+    jnz     CHILOOP             // jump back to start of loop if lcnt != 0
+    // At loop-end, pointer `sptr` contains the address of state-word `a[4]`.
+    endm
+
+
+// The macro `RHOEAST` implements a part of the second plane-shifting layer
+// $\rho_{east]$, namely the lane-wise rotation of the top plane $A_2$, i.e.
+// the operation $A_2 \leftarrow A_2 \lll (2,0)$. This operation is part of the
+// operation $A_2 \leftarrow A_2 \lll (2,8)$, but the 8-bit rotation of the
+// four lanes of $A_2$ was already performed by the `CHI` macro. Each lane of
+// the top plane is loaded from RAM exactly once and written back to RAM also
+// once.
+
+RHOEAST macro
+    add.w   #16, sptr           // set sptr to address of a[8]
+    QLDSI   q0l,q0h             // load word a[8] to QR0
+    QLDSI   q1l,q1h             // load word a[9] to QR1
+    QLDSI   q2l,q2h             // load word a[10] to QR2
+    QLDSI   q3l,q3h             // load word a[11] to QR3
+    sub.w   #48, sptr           // set sptr to address of a[0]
+    QSTSO   q0l,q0h, 40,42      // store QR0 (a[8]) to word a[10]
+    QSTSO   q1l,q1h, 44,46      // store QR1 (a[9]) to word a[11]
+    QSTSO   q2l,q2h, 32,34      // store QR2 (a[10]) to word a[8]
+    QSTSO   q3l,q3h, 36,38      // store QR3 (a[11]) to word a[9]
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+////////////////////////////// XOODOO PERMUTATION /////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+align 2
+public xoodoo_msp
+xoodoo_msp:
+    PROLOGUE                // push callee-saved registers
+    INITVARS                // initialize local variables
+ROUNDLOOP:                  // start of round-loop
+    THETA                   // macro for the mixing layer $\theta$
+    RHOWEST                 // macro for plane-shifting layer $\rho_{west]$
+    IOTA                    // macro for addition of round-constant
+    CHI                     // macro for non-linear layer $\chi$
+    RHOEAST                 // macro for  plane-shifting layer $\rho_{west]$
+    sub.w #2, 0(sp)         // decrement round-counter (on stack!) by 2
+    jnz ROUNDLOOP           // jump back to start of loop if round-counter != 0
+    EPILOGUE                // pop callee-saved registers and return
+
+
+///////////////////////////////////////////////////////////////////////////////
+////////////////////////// ROUND CONSTANTS FOR XOODOO /////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+RSEG DATA16_C:DATA:REORDER:NOROOT(2)
+
+RCON:
+    DC16 0x0058, 0x0038, 0x03C0, 0x00D0, 0x0120, 0x0014, 0x0060, 0x002C
+    DC16 0x0380, 0x00F0, 0x01A0, 0x0012
+
+
+END
