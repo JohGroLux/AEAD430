@@ -674,7 +674,7 @@ ROUND3 macro
 
 
 // The macro `ROUND4` performs the fourth round of a quintuple-round for fix-
-// sliced GIFT128. In this third round three byte-rotations are carried out.
+// sliced GIFT128. In this fourth round three byte-rotations are carried out.
 
 ROUND4 macro
     SBOX    s3h,s3l, s1h,s1l, s2h,s2l, s0h,s0l
