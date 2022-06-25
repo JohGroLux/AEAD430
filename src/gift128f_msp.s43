@@ -1,0 +1,747 @@
+///////////////////////////////////////////////////////////////////////////////
+// gift128f_msp.s43: MSP430 Asm implementation (ICC) of GIFT128 (FS) cipher. //
+// Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
+// License: GPLv3 (see LICENSE file), other licenses available upon request. //
+// ------------------------------------------------------------------------- //
+// This source code is free software: you can redistribute it and/or modify  //
+// it under the terms of the GNU General Public License as published by the  //
+// Free Software Foundation, either version 3 of the License, or (at your    //
+// option) any later version. This source code is distributed in the hope    //
+// that it will be useful, but WITHOUT ANY WARRANTY; without even the        //
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  //
+// See the GNU General Public License for more details. You should have      //
+// received a copy of the GNU General Public License along with this source  //
+// code. If not, see <http://www.gnu.org/licenses/>.                         //
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Function prototype:
+// -------------------
+// void gift128f_msp(uint8_t *ctxt, const uint8_t *ptxt, const uint32_t *rkey)
+//
+// Parameters:
+// -----------
+// `ctxt`: pointer to an uint8_t-array to store the 128-bit ciphertext
+// `ptxt`: pointer to an uint8_t-array containing the 128-bit plaintext
+// `rkey`: pointer to an uint32_t-array containing the 40 roundkeys
+//
+// Return value:
+// -------------
+// None
+
+
+name giftcofb               // module name
+rseg CODE(2)                // place module in 'CODE' segment with alignment 4
+
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////////// REGISTER NAMES AND CONSTANTS /////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+MAXROUNDS equ 40
+
+
+// Two MSP430 registers form a Quad-byte Register (QR) that can store a 32-bit
+// operand, whereby little-endian format is used, i.e. the least-significant
+// half of the 32-bit operand is in the lower register.
+
+// Four quad-byte registers for state-words
+#define s0l r4
+#define s0h r5
+#define s1l r6
+#define s1h r7
+#define s2l r8
+#define s2h r9
+#define s3l r10
+#define s3h r11
+
+// Temp quad-byte register for nibble-RORs
+#define t0 r12
+#define t1 r13
+
+// Pointer to array with cipher/plain-text
+#define cptr r12
+#define pptr r13
+// Pointer to array with roundkey and RCON
+#define kptr r14
+#define rptr r15
+// Temp registers for rotation and masking
+#define tr r12
+#define mask r15
+
+
+///////////////////////////////////////////////////////////////////////////////
+////////////////// HELPER MACROS FOR THE GIFT128 BLOCK CIPHER /////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `PROLOGUE` pushes all callee-saved registers on the stack.
+
+PROLOGUE macro
+    push.w  r4
+    push.w  r5
+    push.w  r6
+    push.w  r7
+    push.w  r8
+    push.w  r9
+    push.w  R10
+    push.w  r11
+    endm
+
+
+// The macro `EPILOGUE` pops all callee-saved registers from the stack and
+// returns to the caller.
+
+EPILOGUE macro
+    pop.w   r11
+    pop.w   r10
+    pop.w   r9
+    pop.w   r8
+    pop.w   r7
+    pop.w   r6
+    pop.w   r5
+    pop.w   r4
+    ret
+    endm
+
+
+// The macro `LDPTEXT` loads the 128-bit plaintest from RAM and puts it in the
+// four quad-byte registers `s0`-`s3`, whereby the byte-order is converted from
+// big-endian to little-endian.
+
+LDPTEXT macro
+    mov.w   @pptr+, s0h
+    mov.w   @pptr+, s0l
+    mov.w   @pptr+, s1h
+    mov.w   @pptr+, s1l
+    mov.w   @pptr+, s2h
+    mov.w   @pptr+, s2l
+    mov.w   @pptr+, s3h
+    mov.w   @pptr+, s3l
+    swpb    s0l
+    swpb    s0h
+    swpb    s1l
+    swpb    s1h
+    swpb    s2l
+    swpb    s2h
+    swpb    s3l
+    swpb    s3h
+    push.w  cptr
+    endm
+
+
+// The macro `STCTEXT` stores the 128-bit ciphertext in the four quad-byte
+// registers `s0`-`s3` to RAM, whereby the byte-order is converted from little-
+// endian to big-endian.
+
+STCTEXT macro
+    swpb    s0l
+    swpb    s0h
+    swpb    s1l
+    swpb    s1h
+    swpb    s2l
+    swpb    s2h
+    swpb    s3l
+    swpb    s3h
+    pop.w   cptr
+    mov.w   s0h, 0(cptr)
+    mov.w   s0l, 2(cptr)
+    mov.w   s1h, 4(cptr)
+    mov.w   s1l, 6(cptr)
+    mov.w   s2h, 8(cptr)
+    mov.w   s2l, 10(cptr)
+    mov.w   s3h, 12(cptr)
+    mov.w   s3l, 14(cptr)
+    endm
+
+
+// The macro `INITVARS` initializes the pointer `rptr` throuhg which the round
+// constants are loaded.
+
+macro INITVARS
+    mov.w #RCON, rptr
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////// MACROS FOR QUAD-BYTE (32-BIT) ARITHMETIC AND LOGICAL OPERATIONS  //////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `QADD` arithmetically adds two quad-byte operands: A = A + B. An
+// implicit 16-bit rotation of operand B is possible, i.e. the macro can also
+// perform an operation of the form A = A + (B >>> 16).
+
+QADD macro b0, b1, a0, a1
+    add.w   b0, a0
+    addc.w  b1, a1
+    endm
+
+
+// The macro `QAND` bitwise ANDs two quad-byte operands: A = A & B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A ^ (B >>> 16).
+
+QAND macro b0, b1, a0, a1
+    and.w   b0, a0
+    and.w   b1, a1
+    endm
+
+
+// The macro `QIOR` bitwise ORs two quad-byte operands: A = A | B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A | (B >>> 16).
+
+QIOR macro b0, b1, a0, a1
+    bis.w   b0, a0
+    bis.w   b1, a1
+    endm
+
+
+// The macro `QXOR` bitwise XORs two quad-byte operands: A = A ^ B. An implicit
+// 16-bit rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A = A ^ (B >>> 16).
+
+QXOR macro b0, b1, a0, a1
+    xor.w   b0, a0
+    xor.w   b1, a1
+    endm
+
+
+// The macro `QMOV` moves a quad-byte operand: A = B.
+
+QMOV macro b0, b1, a0, a1
+    mov.w   b0, a0
+    mov.w   b1, a1
+    endm
+
+
+// The macro `QINV` bitwise inverts a quad-byte operand, whereby the inversion
+// is performed in place: A = ~A.
+
+QINV macro a0, a1
+    inv.w   a0
+    inv.w   a1
+    endm
+
+
+// The macro `QROL` rotates a quad-byte operand one bit left, whereby the
+// rotation is performed in place: A = A <<< 1.
+
+QROL macro a0, a1
+    rla.w   a0
+    rlc.w   a1
+    adc.w   a0
+    endm
+
+
+// The macro `QROL8` rotates a quad-byte operand eight bits left, whereby the
+// rotation is performed in place: A = A <<< 8. This macro requires a temporary
+// register `tr`.
+
+QROL8 macro a0, a1
+    swpb    a0
+    swpb    a1
+    mov.b   a0, tr
+    xor.b   a1, tr
+    xor.w   tr, a0
+    xor.w   tr, a1
+    endm
+
+
+// The macro `QROR` rotates a quad-byte operand one bit right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+QROR macro a0, a1
+    bit.w   #1, a0
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `QROR8` rotates a quad-byte operand eight bits right, whereby the
+// rotation is performed in place: A = A >>> 8. This macro requires a temporary
+// register `tr`.
+
+QROR8 macro a0, a1
+    mov.b   a0, tr
+    xor.b   a1, tr
+    xor.w   tr, a0
+    xor.w   tr, a1
+    swpb    a0
+    swpb    a1
+    endm
+
+
+// The macro `QROR16` rotates a quad-byte operand 16 bits right, whereby the
+// rotation is performed in place: A = A >>> 16.
+
+QROR16 macro a0, a1
+    xor.w   a0, a1
+    xor.w   a1, a0
+    xor.w   a0, a1
+    endm
+
+
+// The macro `QSWAP` swaps two quad-byte operands: A <-> B. An implicit 16-bit
+// rotation of operand B is possible, i.e. the macro can also perform an
+// operation of the form A <-> (B >>> 16).
+
+QSWAP macro b0, b1, a0, a1
+    xor.w   b0, a0
+    xor.w   a0, b0
+    xor.w   b0, a0
+    xor.w   b1, a1
+    xor.w   a1, b1
+    xor.w   b1, a1
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+///////// MACROS FOR QUAD-BYTE (32-BIT) NIBBLE/BYTE/HALFWORD ROTATION /////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `QNROR1` rotates each of the eight 4-bit nibbles contained in a
+// quad-byte operand one bit right.
+
+QNROR1 macro a0, a1
+    mov.w   #0x7777, mask
+    // Copy A to temporary operand T
+    mov.w   a0, t0
+    mov.w   a1, t1
+    // 1-bit right-shift: A = A >> 1
+    rra.w   a1
+    rrc.w   a0
+    // Masking A: A = A & 0x77777777
+    and.w   mask, a0
+    and.w   mask, a1
+    // 3-bit left-shift: T = T << 3
+    rla.w   t0
+    rlc.w   t1
+    rla.w   t0
+    rlc.w   t1
+    rla.w   t0
+    rlc.w   t1
+    // Masking T: T = T & 0x88888888
+    bic.w   mask, t0
+    bic.w   mask, t1
+    // Combine T and A to get result
+    bis.w   t1, a1
+    bis.w   t0, a0
+    endm
+
+
+// The macro `QNROR2` rotates each of the eight 4-bit nibbles contained in a
+// quad-byte operand two bits right.
+
+QNROR2 macro a0, a1
+    mov.w   #0x3333, mask
+    // Copy A to temporary operand T
+    mov.w   a0, t0
+    mov.w   a1, t1
+    // 2-bit right-shift: A = A >> 2
+    rra.w   a1
+    rrc.w   a0
+    rra.w   a1
+    rrc.w   a0
+    // Masking A: A = A & 0x33333333
+    and.w   mask, a0
+    and.w   mask, a1
+    // 2-bit left-shift: T = T << 2
+    rla.w   t0
+    rlc.w   t1
+    rla.w   t0
+    rlc.w   t1
+    // Masking T: T = T & 0xCCCCCCCC
+    bic.w   mask, t0
+    bic.w   mask, t1
+    // Combine T and A to get result
+    bis.w   t0, a0
+    bis.w   t1, a1
+    endm
+
+
+// The macro `QNROR3` rotates each of the eight 4-bit nibbles contained in a
+// quad-byte operand three bits right.
+
+QNROR3 macro a0, a1
+    mov.w   #0x1111, mask
+    // Copy A to temporary operand T
+    mov.w   a0, t0
+    mov.w   a1, t1
+    // 3-bit right-shift: A = A >> 3
+    rra.w   a1
+    rrc.w   a0
+    rra.w   a1
+    rrc.w   a0
+    rra.w   a1
+    rrc.w   a0
+    // Masking A: A = A & 0x11111111
+    and.w   mask, a0
+    and.w   mask, a1
+    // 1-bit left-shift: T = T << 1
+    rla.w   t0
+    rlc.w   t1
+    // Masking T: T = T & 0xEEEEEEEE
+    bic.w   mask, t0
+    bic.w   mask, t1
+    // Combine T and A to get result
+    bis.w   t0, a0
+    bis.w   t1, a1
+    endm
+
+
+// The macro `QBROR2` rotates each of the four bytes contained in a quad-byte
+// operand two bits right.
+
+QBROR2 macro a0, a1
+    // Rotation of lower byte in a0
+    mov.b   a0, t0
+    bit.b   #1, t0
+    rrc.b   t0
+    bit.b   #1, t0
+    rrc.b   t0
+    // Rotation of higher byte in a0
+    swpb    a0
+    bit.b   #1, a0
+    rrc.b   a0
+    bit.b   #1, a0
+    rrc.b   a0
+    swpb    a0
+    xor.w   t0, a0
+    // Rotation of lower byte in a1
+    mov.b   a1, t1
+    bit.b   #1, t1
+    rrc.b   t1
+    bit.b   #1, t1
+    rrc.b   t1
+    // Rotation of higher byte in a1
+    swpb    a1
+    bit.b   #1, a1
+    rrc.b   a1
+    bit.b   #1, a1
+    rrc.b   a1
+    swpb    a1
+    xor.w   t1, a1
+    endm
+
+
+// The macro `QBROR4` rotates each of the four bytes contained in a quad-byte
+// operand four bits right. This macro could be 3 cycles faster if a further
+// register for storing the mask 0x0f0f is available.
+
+QBROR4 macro a0, a1
+    // Copy A to temporary operand T
+    mov.w   a0, t0
+    mov.w   a1, t1
+    // 4-bit right-shift: A = A >> 4
+    rra.w   a1
+    rrc.w   a0
+    rra.w   a1
+    rrc.w   a0
+    rra.w   a1
+    rrc.w   a0
+    rra.w   a1
+    rrc.w   a0
+    // Masking A: A = A & 0x0f0f0f0f
+    and.w   #0x0f0f, a0
+    and.w   #0x0f0f, a1
+    // Masking T: T = T & 0x0f0f0f0f
+    and.w   #0x0f0f, t0
+    and.w   #0x0f0f, t1
+    // 4-bit left-shift: T = T << 4
+    rla.w   t0
+    rlc.w   t1
+    rla.w   t0
+    rlc.w   t1
+    rla.w   t0
+    rlc.w   t1
+    rla.w   t0
+    rlc.w   t1
+    // Combine T and A to get result
+    bis.w   t0, a0
+    bis.w   t1, a1
+    endm
+
+
+// The macro `QBROR6` rotates each of the four bytes contained in a quad-byte
+// operand six bits right (or, equivalently, two bits left)
+
+QBROR6 macro a0, a1
+    // Rotation of lower byte in a0
+    mov.b   a0, t0
+    rla.b   t0
+    adc.b   t0
+    rla.b   t0
+    adc.b   t0
+    // Rotation of higher byte in a0
+    swpb    a0
+    rla.b   a0
+    adc.b   a0
+    rla.b   a0
+    adc.b   a0
+    swpb    a0
+    bis.w   t0, a0
+    // Rotation of lower byte in a1
+    mov.b   a1, t1
+    rla.b   t1
+    adc.b   t1
+    rla.b   t1
+    adc.b   t1
+    // Rotation of higher byte in a1
+    swpb    a1
+    rla.b   a1
+    adc.b   a1
+    rla.b   a1
+    adc.b   a1
+    swpb    a1
+    bis.w   t1, a1
+    endm
+
+
+// The macro `QHROR4` rotates each of the two 16-bit halfword contained in a
+// quad-byte operand four bits right
+
+QHROR4 macro a0, a1
+    // Rotation of 16-bit halfword a0
+    bit.w   #1, a0
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a0
+    // Rotation of 16-bit halfword a1
+    bit.w   #1, a1
+    rrc.w   a1
+    bit.w   #1, a1
+    rrc.w   a1
+    bit.w   #1, a1
+    rrc.w   a1
+    bit.w   #1, a1
+    rrc.w   a1
+    endm
+
+
+// The macro `QHROR8` rotates each of the two 16-bit halfword contained in a
+// quad-byte operand eight bits right
+
+QHROR8 macro a0, a1
+    swpb    a0
+    swpb    a1
+    endm
+
+
+// The macro `QHROR12` rotates each of the two 16-bit halfword contained in a
+// quad-byte operand 12 bits right (or, equivalently, four bits left)
+
+QHROR12 macro a0, a1
+    // Rotation of 16-bit halfword a0
+    rla.w   a0
+    adc.w   a0
+    rla.w   a0
+    adc.w   a0
+    rla.w   a0
+    adc.w   a0
+    rla.w   a0
+    adc.w   a0
+    // Rotation of 16-bit halfword a1
+    rla.w   a1
+    adc.w   a1
+    rla.w   a1
+    adc.w   a1
+    rla.w   a1
+    adc.w   a1
+    rla.w   a1
+    adc.w   a1
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////////////////// MAIN MACROS FOR THE GIFT128 BLOCK CIPHER //////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `SBOX` performs the GIFT128 substitution layer, which consists of
+// 32 identical 4-bit S-boxes that are applied in parallel.
+
+SBOX macro s0h, s0l, s1h, s1l, s2h, s2l, s3h, s3l
+    // S1 ^= (S0 & S2)
+    QMOV    s0l,s0h, t0,t1
+    QAND    s2l,s2h, t0,t1
+    QXOR    t0,t1, s1l,s1h
+    // S0 ^= (S1 & S3)
+    QMOV    s1l,s1h, t0,t1
+    QAND    s3l,s3h, t0,t1
+    QXOR    t0,t1, s0l,s0h
+    // S2 ^= (S0 | S1)
+    QMOV    s0l,s0h, t0,t1
+    QIOR    s1l,s1h, t0,t1
+    QXOR    t0,t1, s2l,s2h
+    // S3 ^= S2
+    QXOR    s2l,s2h, s3l,s3h
+    // S1 ^= S3
+    QXOR    s3l,s3h, s1l,s1h
+    // S3 ^= 0xffffffff
+    QINV    s3l,s3h
+    // S2 ^= (S0 & S1)
+    QMOV    s0l,s0h, t0,t1
+    QAND    s1l,s1h, t0,t1
+    QXOR    t0,t1, s2l,s2h
+    endm
+
+
+// The macro `SWMOV1` performs a swap-move operation with a 1-bit shift, which 
+// neans the bits in B, masked by M, are swapped with the bits in A, masked by
+// M << 1.
+
+SWMOV1 macro ml, mh, bl, bh, al, ah
+    QMOV    al,ah, t0,t1
+    QROR    t0,t1
+    QXOR    bl,bh, t0,t1
+    QAND    ml,mh, t0,t1
+    QXOR    t0,t1, bl,bh
+    QROL    t0,t1
+    QXOR    t0,t1, al,ah
+    endm
+
+
+// The macro `ADDRKEY` XORs two 32-bit words from the roundkey-array (pointed
+// to by `kptr`) to quad-byte operands.
+
+ADDRKEY macro a0, a1, a2, a3
+    xor.w   @kptr+, a0
+    xor.w   @kptr+, a1
+    xor.w   @kptr+, a2
+    xor.w   @kptr+, a3
+    endm
+
+// The macro `ADDRKEY` XORs a 32-bit word from the RCON-array (pointed to by
+// `rptr`) to a quad-byte operand.
+
+ADDRCON macro a0, a1
+    xor.w   @rptr+, a0
+    xor.w   @rptr+, a1
+    endm
+
+
+// The macro `ROUND1` performs the first round of a quintuple-round for fix-
+// sliced GIFT128. In this first round three nibble-rotations are carried out.
+
+ROUND1 macro
+    SBOX    s0h,s0l, s1h,s1l, s2h,s2l, s3h,s3l
+    push.w  rptr
+    QNROR1  s3l,s3h
+    QNROR2  s1l,s1h
+    QNROR3  s2l,s2h
+    pop.w   rptr
+    ADDRKEY s1l,s1h, s2l,s2h
+    ADDRCON s0l,s0h
+    endm
+
+
+// The macro `ROUND2` performs the second round of a quintuple-round for fix-
+// sliced GIFT128. In this second round three halfword-rotations are carried
+// out.
+
+ROUND2 macro
+    SBOX    s3h,s3l, s1h,s1l, s2h,s2l, s0h,s0l
+    QHROR4  s0l,s0h
+    QHROR8  s1l,s1h
+    QHROR12 s2l,s2h
+    ADDRKEY s1l,s1h, s2l,s2h
+    ADDRCON s3l,s3h
+    endm
+
+
+// The macro `ROUND3` performs the third round of a quintuple-round for fix-
+// sliced GIFT128. In this third round three swap-move operations are carried
+// out.
+
+ROUND3 macro
+    SBOX    s0h,s0l, s1h,s1l, s2h,s2l, s3h,s3l
+    QROR16  s2l,s2h
+    QROR16  s3l,s3h
+    SWMOV1  #0x5555,#0x5555, s1l,s1h, s1l,s1h
+    SWMOV1  #0x5555,#0x0000, s2l,s2h, s2l,s2h
+    SWMOV1  #0x0000,#0x5555, s3l,s3h, s3l,s3h
+    ADDRKEY s1l,s1h, s2l,s2h
+    ADDRCON s0l,s0h
+    endm
+
+
+// The macro `ROUND4` performs the fourth round of a quintuple-round for fix-
+// sliced GIFT128. In this third round three byte-rotations are carried out.
+
+ROUND4 macro
+    SBOX    s3h,s3l, s1h,s1l, s2h,s2l, s0h,s0l
+    QBROR2  s2l,s2h
+    QBROR4  s1l,s1h
+    QBROR6  s0l,s0h
+    ADDRKEY s1l,s1h, s2l,s2h
+    ADDRCON s3l,s3h
+    endm
+
+
+// The macro `ROUND5` performs the fifth round of a quintuple-round for fix-
+// sliced GIFT128. In this fifth round three word-rotations are carried out and
+// state-word S0 is swapped with state-word S3.
+
+ROUND5 macro
+    SBOX    s0h,s0l, s1h,s1l, s2h,s2l, s3h,s3l
+    QROR8   s2l,s2h
+    QROR16  s1l,s1h
+    QROL8   s3l,s3h
+    ADDRKEY s1l,s1h, s2l,s2h
+    ADDRCON s0l,s0h
+    QSWAP   s0l,s0h, s3l,s3h
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////// GIFT128 BLOCK ENCRYPTION (FIX-SLICED) ////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+align 2
+public gift128f_msp
+gift128f_msp:
+    PROLOGUE                // push callee-saved registers
+    LDPTEXT                 // load 128-bit block of plaintext from RAM
+    INITVARS                // initialize pointer rptr
+    push.w #(MAXROUNDS/5)   // initialize round-counter (on stack!)
+ROUNDLOOP:                  // start of round-loop
+    ROUND1                  // macro for 1st round of a quintuple-round
+    ROUND2                  // macro for 2nd round of a quintuple-round
+    ROUND3                  // macro for 3rd round of a quintuple-round
+    ROUND4                  // macro for 4th round of a quintuple-round
+    ROUND5                  // macro for 5th round of a quintuple-round
+    sub.w #1, 0(sp)         // decrement round-counter (on stack!)
+    jnz ROUNDLOOP           // jump back to start of loop if round-counter != 0
+    add.w #2, sp            // remove round-counter from stack
+    STCTEXT                 // store 128-bit block of ciphertext to RAM
+    EPILOGUE                // pop callee-saved registers and return
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////////////////// ROUND CONSTANTS FOR FIX-SLICED GIFT128 ////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+RSEG DATA16_C:DATA:REORDER:NOROOT(2)
+
+RCON:
+    DC32 0x10000008, 0x80018000, 0x54000002, 0x01010181, 0x8000001f
+    DC32 0x10888880, 0x6001e000, 0x51500002, 0x03030180, 0x8000002f
+    DC32 0x10088880, 0x60016000, 0x41500002, 0x03030080, 0x80000027
+    DC32 0x10008880, 0x4001e000, 0x11500002, 0x03020180, 0x8000002b
+    DC32 0x10080880, 0x60014000, 0x01400002, 0x02020080, 0x80000021
+    DC32 0x10000080, 0x0001c000, 0x51000002, 0x03010180, 0x8000002e
+    DC32 0x10088800, 0x60012000, 0x40500002, 0x01030080, 0x80000006
+    DC32 0x10008808, 0xc001a000, 0x14500002, 0x01020181, 0x8000001a
+
+
+end
