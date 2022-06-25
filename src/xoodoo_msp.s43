@@ -57,15 +57,15 @@ MAXROUNDS equ 12
 #define q4l r14
 #define q4h r15
 
-// pointer to array containing the state
+// Pointer to array containing the state
 #define sptr r12
-// register holding the number of rounds
+// Register holding the number of rounds
 #define rounds r13
-// register for loop-counter of theta/chi
+// Register for loop-counter of theta/chi
 #define lcnt r13
-// temporary register for 8-bit rotations
+// Temporary register for 8-bit rotations
 #define tr r14
-// pointer to array with round constants
+// Pointer to array with round constants
 #define cptr r15
 
 

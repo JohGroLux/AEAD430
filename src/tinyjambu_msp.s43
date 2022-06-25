@@ -39,8 +39,7 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 ///////////////////////////////////////////////////////////////////////////////
 
 
-// registers for the four 32-bit state-words
-
+// Registers for the four 32-bit state-words
 #define s0l r4
 #define s0h r5
 #define s1l r6
@@ -50,8 +49,7 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 #define s3l r10
 #define s3h r11
 
-// registers for the temporary values T0-T3
-
+// Registers for the temporary values T0-T3
 #define t0l r14
 #define t0h r14
 #define t1l r15
@@ -61,13 +59,11 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 #define t3l r15
 #define t3h r15
 
-// pointer-registers for the state and key
-
+// Pointer-registers for the state and key
 #define sptr r12
 #define kptr r13
 
-// step-counter, number of steps, temp reg
-
+// Step-counter, number of steps, temp reg
 #define scnt r12
 #define steps r14
 #define tmp r14

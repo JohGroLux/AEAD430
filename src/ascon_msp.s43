@@ -42,41 +42,35 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 // operand, whereby little-endian format is used, i.e. the least-significant
 // quarter of the 64-bit operand is in the lowest register.
 
-// Octa-byte registers for linear layer
-
+// Two octa-byte registers for linear layer
 #define l0 r4
 #define l1 r5
 #define l2 r6
 #define l3 r7
-
 #define t0 r8
 #define t1 r9
 #define t2 r10
 #define t3 r11
 
-// Five normal registers for sbox layer
-
+// Eight 16-bit registers for sbox layer
 #define s0 r4
 #define s1 r5
 #define s2 r6
 #define s3 r7
 #define s4 r8
-
-// Three temp registers for sbox layer
-
 #define ta r9
 #define tb r10
 #define tc r11
 
-// pointer to struct containing the state
+// Pointer to struct containing the state
 #define sptr r12
-// register holding the number of rounds
+// Register holding the number of rounds
 #define rounds r13
-// register for loop-counter of sbox layer
+// Register for loop-counter of sbox loop
 #define scnt r14
-// temporary register for 8-bit rotations
+// Temporary register for 8-bit rotations
 #define tr r14
-// register for 8-bit round-constant RCON
+// Register for 8-bit round-constant RCON
 #define rcon r15
 
 

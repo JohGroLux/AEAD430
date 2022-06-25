@@ -43,8 +43,7 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 // operand, whereby little-endian format is used, i.e. the least-significant
 // half of the 32-bit operand is in the lower register.
 
-// quad-byte registers for ARX-box Alzette
-
+// Quad-byte registers for ARX-box Alzette
 #define x0 R4
 #define x1 R5
 #define y0 R6
@@ -52,32 +51,27 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 #define c0 R8
 #define c1 R9
 
-// quad-byte registers for temp words TX, TY
-
+// Quad-byte registers for temp words TX, TY
 #define tx0 R14
 #define tx1 R15
 #define ty0 R10
 #define ty1 R11
 
-// quad-byte register allocated on the stack
-
+// Quad-byte register allocated on the stack
 #define sy0 4(sp)
 #define sy1 2(sp)
 
-// temporary registers for rotation-macros
-
+// Temporary registers for rotation-macros
 #define t0 R10
 #define t1 R11
 #define tr R10
 
-// pointer-registers for the state and RCON
-
+// Pointer-registers for the state and RCON
 #define sptr R12
 #define cptr R13
 #define uptr r13
 
-// loop-counters for branch loop, step loop
-
+// Loop-counters for branch loop, step loop
 #define brans R4
 #define bcnt R4
 #define steps R5
