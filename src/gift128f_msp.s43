@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// gift128f_msp.s43: MSP430 Asm implementation (ICC) of GIFT128 (FS) cipher. //
+// gift128f_msp.s43: MSP430 Asm implementation (ICC) of GIFT-128 (FS) cipher //
 // Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
@@ -17,7 +17,8 @@
 
 // Function prototype:
 // -------------------
-// void gift128f_msp(uint8_t *ctxt, const uint8_t *ptxt, const uint32_t *rkey)
+// void gift128f_enc_msp(uint8_t *ctxt, const uint8_t *ptxt,
+//   const uint32_t *rkey)
 //
 // Parameters:
 // -----------
@@ -72,7 +73,7 @@ MAXROUNDS equ 40
 
 
 ///////////////////////////////////////////////////////////////////////////////
-////////////////// HELPER MACROS FOR THE GIFT128 BLOCK CIPHER /////////////////
+///////////////// HELPER MACROS FOR THE GIFT-128 BLOCK CIPHER /////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -160,7 +161,7 @@ STCTEXT macro
 // constants are loaded.
 
 macro INITVARS
-    mov.w #RCON, rptr
+    mov.w   #RCON, rptr
     endm
 
 
@@ -561,11 +562,11 @@ QHROR12 macro a0, a1
 
 
 ///////////////////////////////////////////////////////////////////////////////
-/////////////////// MAIN MACROS FOR THE GIFT128 BLOCK CIPHER //////////////////
+////////////////// MAIN MACROS FOR THE GIFT-128 BLOCK CIPHER //////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
-// The macro `SBOX` performs the GIFT128 substitution layer, which consists of
+// The macro `SBOX` performs the GIFT-128 substitution layer, which consists of
 // 32 identical 4-bit S-boxes that are applied in parallel.
 
 SBOX macro s0h, s0l, s1h, s1l, s2h, s2l, s3h, s3l
@@ -629,7 +630,7 @@ ADDRCON macro a0, a1
 
 
 // The macro `ROUND1` performs the first round of a quintuple-round for fix-
-// sliced GIFT128. In this first round three nibble-rotations are carried out.
+// sliced GIFT-128. In this first round three nibble-rotations are carried out.
 
 ROUND1 macro
     SBOX    s0h,s0l, s1h,s1l, s2h,s2l, s3h,s3l
@@ -644,7 +645,7 @@ ROUND1 macro
 
 
 // The macro `ROUND2` performs the second round of a quintuple-round for fix-
-// sliced GIFT128. In this second round three halfword-rotations are carried
+// sliced GIFT-128. In this second round three halfword-rotations are carried
 // out.
 
 ROUND2 macro
@@ -658,7 +659,7 @@ ROUND2 macro
 
 
 // The macro `ROUND3` performs the third round of a quintuple-round for fix-
-// sliced GIFT128. In this third round three swap-move operations are carried
+// sliced GIFT-128. In this third round three swap-move operations are carried
 // out.
 
 ROUND3 macro
@@ -674,7 +675,7 @@ ROUND3 macro
 
 
 // The macro `ROUND4` performs the fourth round of a quintuple-round for fix-
-// sliced GIFT128. In this fourth round three byte-rotations are carried out.
+// sliced GIFT-128. In this fourth round three byte-rotations are carried out.
 
 ROUND4 macro
     SBOX    s3h,s3l, s1h,s1l, s2h,s2l, s0h,s0l
@@ -687,8 +688,8 @@ ROUND4 macro
 
 
 // The macro `ROUND5` performs the fifth round of a quintuple-round for fix-
-// sliced GIFT128. In this fifth round three word-rotations are carried out and
-// state-word S0 is swapped with state-word S3.
+// sliced GIFT-128. In this fifth round three word-rotations are carried out
+// and state-word S0 is swapped with state-word S3.
 
 ROUND5 macro
     SBOX    s0h,s0l, s1h,s1l, s2h,s2l, s3h,s3l
@@ -702,13 +703,13 @@ ROUND5 macro
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//////////////////// GIFT128 BLOCK ENCRYPTION (FIX-SLICED) ////////////////////
+//////////////////// GIFT-128 BLOCK ENCRYPTION (FIX-SLICED) ///////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
 align 2
-public gift128f_msp
-gift128f_msp:
+public gift128f_enc_msp
+gift128f_enc_msp:
     PROLOGUE                // push callee-saved registers
     LDPTEXT                 // load 128-bit block of plaintext from RAM
     INITVARS                // initialize pointer rptr
@@ -727,7 +728,7 @@ ROUNDLOOP:                  // start of round-loop
 
 
 ///////////////////////////////////////////////////////////////////////////////
-/////////////////// ROUND CONSTANTS FOR FIX-SLICED GIFT128 ////////////////////
+/////////////////// ROUND CONSTANTS FOR FIX-SLICED GIFT-128 ///////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
