@@ -425,12 +425,12 @@ IOTA macro
 // The macro `CHI` implements the non-linear layer $\chi$ and also includes
 // parts of the subsequent plane-shifting layer $\rho_{east]$. These parts are
 // the 1-bit rotation of the four lanes of the middle plane $A_1$, i.e. the
-// i.e. the operation $A_1 \leftarrow A_1 \lll (0,1)$, and the 8-bit rotation
-// of the four lanes of the top plane $A_2$, which is itself a part of the
-// operation $A_2 \leftarrow A_2 \lll (2,8)$. Note that the latter operation
-// also includes a line-wise rotation of the top plane by two lanes, which is
-// not included in this macro but the subsequent `RHOEAST` macro. Each lane is
-// loaded from RAM exactly once and written back to RAM also once.
+// operation $A_1 \leftarrow A_1 \lll (0,1)$, and the 8-bit rotation of the
+// four lanes of the top plane $A_2$, which is itself a part of the operation
+// $A_2 \leftarrow A_2 \lll (2,8)$. The latter operation also includes a line-
+// wise rotation of the top plane by two lanes, which is not part of this macro
+// but the subsequent `RHOEAST` macro. Each lane is loaded from RAM exactly
+// once and written back to RAM also once.
 
 CHI macro
     mov.w   #4, lcnt            // initialize loop-counter with 4
