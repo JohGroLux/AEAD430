@@ -179,7 +179,7 @@ static void print_state(const uint32_t *state)
   int i, j, k = 0;
 
   // for (i = 0; i < 4; i++) {
-  //   printf("%08x ", state[i]);
+  //   printf("%08lx ", state[i]);
   // }
   // printf("\n");
 

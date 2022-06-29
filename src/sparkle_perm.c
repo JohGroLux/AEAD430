@@ -176,7 +176,7 @@ static void print_state(const uint32_t *state, int brans)
   int i, j, k = 0;
 
   // for (i = 0; i < 2*brans; i++) {
-  //   printf("%08x ", state[i]);
+  //   printf("%08lx ", state[i]);
   // }
   // printf("\n");
 
