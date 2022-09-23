@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// ascon_perm.c: Optimized C99 implementation of the ASCON128 permutation.   //
+// ascon_perm.c: C99 implementation and unit-test of ASCON128 permutation.   //
 // Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
@@ -59,30 +59,30 @@ extern void ascon_msp(State *s, int nr);
 // The 1st version of the ASCON128v12 permutation is based on the source code
 // in `round.h` of the `ref` implementation from the designers.
 
-void ascon_c99_V1(State *s, int nr)
+void ascon_c99(State *s, int nr)
 {
   State t;
   int rc;
 
   for (rc = START(nr); rc > END; rc -= DEC) {
-    /* addition of round constant */
+    // addition of round constant
     s->x[2] ^= (uint64_t) rc;
-    /* substitution layer */
+    // substitution layer
     s->x[0] ^= s->x[4];
     s->x[4] ^= s->x[3];
     s->x[2] ^= s->x[1];
-    /* start of keccak s-box */
+    // start of keccak s-box
     t.x[0] = s->x[0] ^ (~s->x[1] & s->x[2]);
     t.x[1] = s->x[1] ^ (~s->x[2] & s->x[3]);
     t.x[2] = s->x[2] ^ (~s->x[3] & s->x[4]);
     t.x[3] = s->x[3] ^ (~s->x[4] & s->x[0]);
     t.x[4] = s->x[4] ^ (~s->x[0] & s->x[1]);
-    /* end of keccak s-box */
+    // end of keccak s-box
     t.x[1] ^= t.x[0];
     t.x[0] ^= t.x[4];
     t.x[3] ^= t.x[2];
     t.x[2] = ~t.x[2];
-    /* linear diffusion layer */
+    // linear diffusion layer
     s->x[0] = t.x[0] ^ ROR64(t.x[0], 19) ^ ROR64(t.x[0], 28);
     s->x[1] = t.x[1] ^ ROR64(t.x[1], 61) ^ ROR64(t.x[1], 39);
     s->x[2] = t.x[2] ^ ROR64(t.x[2],  1) ^ ROR64(t.x[2],  6);
@@ -101,9 +101,9 @@ void ascon_c99_V2(State *s, int nr)
   int rc;
 
   for (rc = START(nr); rc > END; rc -= DEC) {
-    /* round constant */
+    // round constant
     s->x[2] ^= (uint64_t) rc;
-    /* s-box layer */
+    // s-box layer
     s->x[0] ^= s->x[4];
     s->x[4] ^= s->x[3];
     s->x[2] ^= s->x[1];
@@ -117,7 +117,7 @@ void ascon_c99_V2(State *s, int nr)
     s->x[3] ^= s->x[2];
     s->x[0] ^= s->x[4];
     s->x[2] = ~s->x[2];
-    /* linear layer */
+    // linear layer
     xtemp = s->x[0] ^ ROR64(s->x[0], 28 - 19);
     s->x[0] ^= ROR64(xtemp, 19);
     xtemp = s->x[1] ^ ROR64(s->x[1], 61 - 39);
@@ -239,7 +239,7 @@ static void print_bytes(const char* str, const UChar *bytearray, size_t len)
 
 // Simple test function for the ASCON128v12 permutation.
 
-void test_ascon(int rounds)
+void ascon_test_perm(int rounds)
 {
   State s;
   int i;
@@ -249,7 +249,7 @@ void test_ascon(int rounds)
   printf("Test 1 - C99 implementation:\n");
   s.x[0] = s.x[1] = s.x[2] = s.x[3] = s.x[4] = 0;
   print_state(&s);
-  ascon_c99_V3(&s, rounds);  // permutation in C
+  ascon_c99(&s, rounds);  // permutation in C
   print_state(&s);
 
 #if defined(ASCON_ASSEMBLER)
@@ -265,7 +265,7 @@ void test_ascon(int rounds)
   printf("Test 2 - C99 implementation:\n");
   for (i = 0; i < 40; i++) ((uint8_t *) &s)[i] = (uint8_t) i;
   print_state(&s);
-  ascon_c99_V3(&s, rounds);  // permutation in C
+  ascon_c99(&s, rounds);  // permutation in C
   print_state(&s);
 
 #if defined(ASCON_ASSEMBLER)

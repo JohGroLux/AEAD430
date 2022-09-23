@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// giftcofb_cipher.c: Optimized C99 implementation of GIFT-128 block cipher. //
+// giftcofb_cipher.c: C99 implementation and unit-test of GIFT-128 cipher.   //
 // Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
@@ -346,29 +346,6 @@ extern void gift128f_grk_msp(uint32_t *rkey, const uint8_t *key);
 #endif
 
 
-// Print plain/ciphertext-words or key-words of GIFT128 in Hex format.
-
-static void print_words(const uint32_t *w, int len)
-{
-  uint8_t buffer[85], byte;
-  int i, j, k = 0;
-
-  // printf("%08lx %08lx %08lx %08lx\n", w[0], w[1], w[2], w[3]);
-
-  for (i = 0; i < len; i++) {
-    for (j = 7; j >= 0; j--) {
-      byte = (w[i] >> 4*j) & 0xf;
-      // replace 87 by 55 to get uppercase letters
-      buffer[k++] = byte + ((byte < 10) ? 48 : 87);
-    }
-    buffer[k++] = ' ';
-  }
-  buffer[k-1] = '\0';
-
-  printf("%s\n", buffer);
-}
-
-
 // The fix-sliced implementation of the GIFT-128 encryption is based on the 
 // source code in `giftb128.c` of the `opt32` implementation from the
 // designers.
@@ -394,9 +371,65 @@ void gift128f_enc_c99(uint8_t *ctxt, const uint8_t *ptxt, const uint32_t *rkey)
 }
 
 
+// Print plain/ciphertext-words or key-words of GIFT128 in Hex format.
+
+static void print_words(const uint32_t *w, int len)
+{
+  uint8_t buffer[85], byte;
+  int i, j, k = 0;
+
+  // printf("%08lx %08lx %08lx %08lx\n", w[0], w[1], w[2], w[3]);
+
+  for (i = 0; i < len; i++) {
+    for (j = 7; j >= 0; j--) {
+      byte = (w[i] >> 4*j) & 0xf;
+      // replace 87 by 55 to get uppercase letters
+      buffer[k++] = byte + ((byte < 10) ? 48 : 87);
+    }
+    buffer[k++] = ' ';
+  }
+  buffer[k-1] = '\0';
+
+  printf("%s\n", buffer);
+}
+
+
+/*
+// Print a byte-array in Hex format (the output is limited to the first 64
+// bytes of the byte-array).
+
+static void print_bytes(const char* str, const UChar *bytearray, size_t len)
+{
+  UChar buffer[148], byte;
+  size_t i, j, slen = 0;
+
+  if (str != NULL) {
+    slen = MIN(16, strlen(str));
+    memcpy(buffer, str, slen);
+  }
+
+  j = slen;
+  for (i = 0; i < MIN(64, len); i++) {
+    byte = bytearray[i] >> 4;
+    // replace 87 by 55 to get uppercase letters
+    buffer[j++] = byte + ((byte < 10) ? 48 : 87);
+    byte = bytearray[i] & 0xf;
+    buffer[j++] = byte + ((byte < 10) ? 48 : 87);
+  }
+  if (len > 64) {
+    buffer[j] = buffer[j+1] = buffer[j+2] = '.';
+    j += 3;
+  }
+  buffer[j] = '\0';
+
+  printf("%s\n", buffer);
+}
+*/
+
+
 // Simple test function for the fix-sliced GIFT128 encryption.
 
-void test_giftcofb(void)
+void giftcofb_test_cipher(void)
 {
   uint8_t ptxt[16], ctxt[16], key[16];
   uint32_t rkey[80];

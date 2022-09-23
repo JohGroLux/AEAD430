@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// tinyjambu_perm.c: Opt C99 implementation of the TinyJambu permutation.    //
+// tinyjambu_perm.c: C99 implementation + unit-test of TinyJambu permutation //
 // Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
@@ -48,7 +48,7 @@ extern void state_update_msp(uint32_t *state, const UChar *key, int steps);
 // The 1st version of the TinyJambu state-update function is based on the
 // source code in `encrypt.c` of the `opt` implementation from the designers.
 
-void state_update_c99_V1(uint32_t *state, const UChar *key, int steps)
+void state_update_c99(uint32_t *state, const UChar *key, int steps)
 {
   const uint32_t *key32 = (const void *) key;
   uint32_t t0, t1, t2, t3;
@@ -197,9 +197,42 @@ static void print_state(const uint32_t *state)
 }
 
 
+/*
+// Print a byte-array in Hex format (the output is limited to the first 64
+// bytes of the byte-array).
+
+static void print_bytes(const char* str, const UChar *bytearray, size_t len)
+{
+  UChar buffer[148], byte;
+  size_t i, j, slen = 0;
+
+  if (str != NULL) {
+    slen = MIN(16, strlen(str));
+    memcpy(buffer, str, slen);
+  }
+
+  j = slen;
+  for (i = 0; i < MIN(64, len); i++) {
+    byte = bytearray[i] >> 4;
+    // replace 87 by 55 to get uppercase letters
+    buffer[j++] = byte + ((byte < 10) ? 48 : 87);
+    byte = bytearray[i] & 0xf;
+    buffer[j++] = byte + ((byte < 10) ? 48 : 87);
+  }
+  if (len > 64) {
+    buffer[j] = buffer[j+1] = buffer[j+2] = '.';
+    j += 3;
+  }
+  buffer[j] = '\0';
+
+  printf("%s\n", buffer);
+}
+*/
+
+
 // Simple test function for the TinyJambu permutation.
 
-void test_tinyjambu(int steps)
+void tinyjambu_test_perm(int steps)
 {
   uint32_t state[4];
   UChar key[16];
@@ -212,7 +245,7 @@ void test_tinyjambu(int steps)
   printf("Test 1 - C99 implementation:\n");
   for (i = 0; i < 4; i++) state[i] = 0;
   print_state(state);
-  state_update_c99_V2(state, key, steps);  // permutation in C
+  state_update_c99(state, key, steps);  // permutation in C
   print_state(state);
 
 #if defined(TINYJAMBU_ASSEMBLER)
@@ -228,7 +261,7 @@ void test_tinyjambu(int steps)
   printf("Test 2 - C99 implementation:\n");
   for (i = 0; i < 16; i++) ((uint8_t *) state)[i] = (uint8_t) i;
   print_state(state);
-  state_update_c99_V2(state, key, steps);  // permutation in C
+  state_update_c99(state, key, steps);  // permutation in C
   print_state(state);
 
 #if defined(TINYJAMBU_ASSEMBLER)

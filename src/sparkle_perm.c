@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// sparkle_perm.c: Optimized C99 implementation of the SPARKLE permutation.  //
+// sparkle_perm.c: C99 implementation and unit-test of SPARKLE permutation.  //
 // Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
@@ -54,7 +54,7 @@ extern void sparkle_msp(uint32_t *state, int brans, int steps);
 // The 1st version of the SPARKLE permutation is based on the source code in
 // `sparkle.c` of the `opt` implementation from the designers.
 
-void sparkle_c99_V1(uint32_t *state, int brans, int steps)
+void sparkle_c99(uint32_t *state, int brans, int steps)
 {
   int i, j;  // Step and branch counter
   uint32_t rc, tx, ty, x0, y0;
@@ -229,7 +229,7 @@ static void print_bytes(const char* str, const UChar *bytearray, size_t len)
 
 // Simple test function for the SPARKLE permutation.
 
-void test_sparkle(int brans, int steps)
+void sparkle_test_perm(int brans, int steps)
 {
   uint32_t state[2*MAX_BRANCHES];
   int i;
@@ -239,7 +239,7 @@ void test_sparkle(int brans, int steps)
   printf("Test 1 - C99 implementation:\n");
   for (i = 0; i < 2*brans; i++) state[i] = 0;
   print_state(state, brans);
-  sparkle_c99_V2(state, brans, steps);  // permutation in C
+  sparkle_c99(state, brans, steps);  // permutation in C
   print_state(state, brans);
 
 #if defined(SPARKLE_ASSEMBLER)
@@ -255,7 +255,7 @@ void test_sparkle(int brans, int steps)
   printf("Test 2 - C99 implementation:\n");
   for (i = 0; i < 8*brans; i++) ((uint8_t *) state)[i] = (uint8_t) i;
   print_state(state, brans);
-  sparkle_c99_V2(state, brans, steps);  // permutation in C
+  sparkle_c99(state, brans, steps);  // permutation in C
   print_state(state, brans);
 
 #if defined(SPARKLE_ASSEMBLER)
