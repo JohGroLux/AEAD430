@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // tinyjambu_msp.s43: MSP430 Asm implementation of TinyJambu permutation.    //
-// Version 1.0.1 (25-08-22), see <http://github.com/johgrolux/> for updates. //
+// Version 1.0.2 (16-12-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
 // This source code is free software: you can redistribute it and/or modify  //
@@ -64,7 +64,7 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 
 
 ///////////////////////////////////////////////////////////////////////////////
-/////// MACROS FOR QUAD-BYTE (32-BIT) ARITHMETIC AND LOGICAL OPERATIONS  //////
+/////// MACROS FOR QUAD-BYTE (32-BIT) ARITHMETIC AND LOGICAL OPERATIONS ///////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -106,50 +106,102 @@ QINV macro a0, a1
 
 
 // The macro `QSHLC` shifts a quad-byte operand one bit left through carry,
-// whereby the shift is performed in place: A = A << 1.
+// whereby the shift is performed in place: A = (A || c) << 1. The carry-bit is
+// extracted from register `creg` using the mask `cmask`.
 
-QSHLC macro a0, a1
+QSHLC macro creg, cmask, a0, a1
+    bit.w   #cmask, creg
     rlc.w   a0
     rlc.w   a1
     endm
 
 
-///////////////////////////////////////////////////////////////////////////////
-/////// MACROS FOR OCTA-BYTE (64-BIT) ARITHMETIC AND LOGICAL OPERATIONS  //////
-///////////////////////////////////////////////////////////////////////////////
+// The macro `QSHRC` shifts a quad-byte operand one bit right through carry,
+// whereby the shift is performed in place: A = (c || A) >> 1. The carry-bit is
+// extracted from register `creg` using the mask `cmask`.
 
-
-// The macro `OSHLC` shifts an octa-byte operand one bit left through carry,
-// whereby the shift is performed in place: A = A << 1.
-
-OSHLC macro a0, a1, a2, a3
-    rlc.w   a0
-    rlc.w   a1
-    rlc.w   a2
-    rlc.w   a3
+QSHRC macro creg, cmask, a0, a1
+    bit.w   #cmask, creg
+    rrc.w   a1
+    rrc.w   a0
     endm
 
 
-// The macro `OSHL4` shifts an octa-byte operand four bits left, whereby the
-// shift is performed in place: A = A << 4.
+///////////////////////////////////////////////////////////////////////////////
+/////// MACROS FOR HEXA-BYTE (48-BIT) ARITHMETIC AND LOGICAL OPERATIONS ///////
+///////////////////////////////////////////////////////////////////////////////
 
-OSHL4 macro a0, a1, a2, a3
+
+// The macro `HMOV` moves a hexa-byte operand: A = B.
+
+HMOV macro b0, b1, b2, a0, a1, a2
+    mov.w   b0, a0
+    mov.w   b1, a1
+    mov.w   b2, a2
+    endm
+
+
+// The macro `HSHL5` shifts a hexa-byte operand five bits left, whereby the
+// shift is performed in place: A = A << 5.
+
+HSHL5 macro a0, a1, a2
     rla.w   a0
     rlc.w   a1
     rlc.w   a2
-    rlc.w   a3
     rla.w   a0
     rlc.w   a1
     rlc.w   a2
-    rlc.w   a3
     rla.w   a0
     rlc.w   a1
     rlc.w   a2
-    rlc.w   a3
     rla.w   a0
     rlc.w   a1
     rlc.w   a2
-    rlc.w   a3
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////// MACROS FOR OCTA-BYTE (64-BIT) ARITHMETIC AND LOGICAL OPERATIONS ///////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `OMOV` moves an octa-byte operand: A = B.
+
+OMOV macro b0, b1, b2, b3, a0, a1, a2, a3
+    mov.w   b0, a0
+    mov.w   b1, a1
+    mov.w   b2, a2
+    mov.w   b3, a3
+    endm
+
+
+// The macro `OSHR5` shifts an octa-byte operand five bits right, whereby the
+// shift is performed in place: A = A >> 5.
+
+OSHR5 macro a0, a1, a2, a3
+    rra.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    rra.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    rra.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    rra.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    rra.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
     endm
 
 
@@ -235,43 +287,37 @@ STSTATE macro
 // a 32-bit word of the state (i.e. it computes 32 rounds of the permutation in
 // parallel). There are three 32-bit input words (left, middle, right) and one
 // 32-bit output word (result). For example, when udating `state[0]`, the three
-// input words are `state[1]` (left), `state[2]` (middle), and `state[3]`
-// (right).
+// input words are `state[1]` (right), `state[2]` (middle), and `state[3]`
+// (left) and the result word is `state[0]` (see specification, Figure 3.1).
 
 COMPT32 macro lel, leh, mil, mih, ril, rih, rsl, rsh
     // compute s[0] ^= t0
-    mov     leh, tal
-    bit.w   #0x8000, lel
-    rlc.w   tal
-    xor.w   tal, rsl
-    QMOV    mil, mih, tal, tah
-    QMOV    ril, rih, tbl, tbh
-    bit.w   #0x8000, leh
-    OSHLC   tal, tah, tbl, tbh
-    xor.w   tal, rsh
+    QMOV    rih, mil, tal, tah
+    QSHLC   ril, 0x8000, tal, tah
+    QXOR    tal, tah, rsl, rsh
     // compute s[0] ^= t3
-    OSHL4   tal, tah, tbl, tbh
+    HMOV    mih, lel, leh, tah, tbl, tbh
+    HSHL5   tah, tbl, tbh
     QXOR    tbl, tbh, rsl, rsh
-    // compute t1 (in tah, tbl)
-    OSHL4   tal, tah, tbl, tbh
-    OSHLC   tal, tah, tbl, tbh
-    // compute t2 (in tbh, tal)
-    QMOV    tbh, tbl, tal, tbh
-    bit.w   #0x8000, tah
-    QSHLC   tbh, tal
+    // compute t2 (in tbl, tbh)
+    OMOV    mil, mih, lel, leh, tal, tah, tbl, tbh
+    OSHR5   tal, tah, tbl, tbh
+    QMOV    tbl, tah, tbh, tbl  // order matters!
+    // compute t2 (in tal, tah)
+    QSHRC   tbh, 0x1, tal, tah
     // compute s[0] ^= ~(t1 & t2)
     QAND    tal, tah, tbl, tbh
     QINV    tbl, tbh
-    QXOR    tbl, tbh, rsh, rsl
+    QXOR    tbl, tbh, rsl, rsh
     endm
 
 
 // The macro `ADDRKEY` adds a 32-bit word of the round-key to a 32-bit word of
 // the state. The pointer to the round-key-array is on the stack (it was pushed
 // by macro `LDSTATE`) and has to be loaded first (note that `steps` is on the
-// top of the stack; right before entering the step-loop). The offset values
-// `ofl` and `ofh` determine which 32-bit key-word is added to the state-word
-// in registers `a0` and `a1`.
+// top of the stack; it was pushed right before entering the step-loop). The
+// two offset values `ofl` and `ofh` determine which 32-bit key-word is added
+// to the state-word in registers `a0` and `a1`.
 
 ADDRKEY macro ofl, ofh, a0, a1
     mov.w   2(sp), kptr
@@ -284,13 +330,13 @@ ADDRKEY macro ofl, ofh, a0, a1
 // it executes 128 rounds of the state-update operation.
 
 macro STUPD128
-    COMPT32 s1l, s1h, s2l, s2h, s3l, s3h, s0l, s0h
+    COMPT32 s3l, s3h, s2l, s2h, s1l, s1h, s0l, s0h
     ADDRKEY 0, 2, s0l, s0h
-    COMPT32 s2l, s2h, s3l, s3h, s0l, s0h, s1l, s1h
+    COMPT32 s0l, s0h, s3l, s3h, s2l, s2h, s1l, s1h
     ADDRKEY 4, 6, s1l, s1h
-    COMPT32 s3l, s3h, s0l, s0h, s1l, s1h, s2l, s2h
+    COMPT32 s1l, s1h, s0l, s0h, s3l, s3h, s2l, s2h
     ADDRKEY 8, 10, s2l, s2h
-    COMPT32 s0l, s0h, s1l, s1h, s2l, s2h, s3l, s3h
+    COMPT32 s2l, s2h, s1l, s1h, s0l, s0h, s3l, s3h
     ADDRKEY 12, 14, s3l, s3h
     endm
 
