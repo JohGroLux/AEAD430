@@ -31,14 +31,14 @@ typedef unsigned long long int ULLInt;
 
 
 #if (defined(__AVR) || defined(__AVR__))
-extern void state_update_avr(uint32_t *state, const UChar *key, int steps);
+extern void state_update_avr(uint32_t *state, const uint32_t *key, int steps);
 #define state_update_asm(state, key, steps) \
   state_update_avr((state), (key), (steps))
 #define TINYJAMBU_ASSEMBLER
 #endif
 
 #if (defined(__MSP430__) || defined(__ICC430__))
-extern void state_update_msp(uint32_t *state, const UChar *key, int steps);
+extern void state_update_msp(uint32_t *state, const uint32_t *key, int steps);
 #define state_update_asm(state, key, steps) \
   state_update_msp((state), (key), (steps))
 #define TINYJAMBU_ASSEMBLER
@@ -48,9 +48,8 @@ extern void state_update_msp(uint32_t *state, const UChar *key, int steps);
 // The 1st version of the TinyJambu state-update function is based on the
 // source code in `encrypt.c` of the `opt` implementation from the designers.
 
-void state_update_c99(uint32_t *state, const UChar *key, int steps)
+void state_update_c99(uint32_t *state, const uint32_t *key, int steps)
 {
-  const uint32_t *key32 = (const void *) key;
   uint32_t t0, t1, t2, t3;
   int i;
 
@@ -60,25 +59,25 @@ void state_update_c99(uint32_t *state, const UChar *key, int steps)
     t1 = (state[2] >>  6) | (state[3] << 26);  // 47+23 = 70 = 2*32+6
     t2 = (state[2] >> 21) | (state[3] << 11);  // 47+23+15 = 85 = 2*32+21
     t3 = (state[2] >> 27) | (state[3] <<  5);  // 47+23+15+6 = 91 = 2*32+27
-    state[0] ^= t0 ^ (~(t1 & t2)) ^ t3 ^ key32[0];
+    state[0] ^= t0 ^ (~(t1 & t2)) ^ t3 ^ key[0];
 
     t0 = (state[2] >> 15) | (state[3] << 17);
     t1 = (state[3] >>  6) | (state[0] << 26);
     t2 = (state[3] >> 21) | (state[0] << 11);
     t3 = (state[3] >> 27) | (state[0] <<  5);
-    state[1] ^= t0 ^ (~(t1 & t2)) ^ t3 ^ key32[1];
+    state[1] ^= t0 ^ (~(t1 & t2)) ^ t3 ^ key[1];
 
     t0 = (state[3] >> 15) | (state[0] << 17);
     t1 = (state[0] >>  6) | (state[1] << 26);
     t2 = (state[0] >> 21) | (state[1] << 11);
     t3 = (state[0] >> 27) | (state[1] <<  5);
-    state[2] ^= t0 ^ (~(t1 & t2)) ^ t3 ^ key32[2];
+    state[2] ^= t0 ^ (~(t1 & t2)) ^ t3 ^ key[2];
 
     t0 = (state[0] >> 15) | (state[1] << 17);
     t1 = (state[1] >>  6) | (state[2] << 26);
     t2 = (state[1] >> 21) | (state[2] << 11);
     t3 = (state[1] >> 27) | (state[2] <<  5);
-    state[3] ^= t0 ^ (~(t1 & t2)) ^ t3 ^ key32[3];
+    state[3] ^= t0 ^ (~(t1 & t2)) ^ t3 ^ key[3];
   }
 }
 
@@ -87,11 +86,11 @@ void state_update_c99(uint32_t *state, const UChar *key, int steps)
 // 1st version except that the four state-words are not updated word-wise but
 // in 16-bit slices.
 
-void state_update_c99_V2(uint32_t *state, const UChar *key, int steps)
+void state_update_c99_V2(uint32_t *state, const uint32_t *key, int steps)
 {
   uint16_t *state16 = (uint16_t *) state;
   const uint16_t *key16 = (const void *) key;
-  // half (i.e. 16-bit) of t0, t1, t2, t3
+  // half (i.e. 16 bits) of t0, t1, t2, t3
   uint16_t ht0, ht1, ht2, ht3;
   int i;
 
@@ -234,11 +233,10 @@ static void print_bytes(const char* str, const UChar *bytearray, size_t len)
 
 void tinyjambu_test_perm(int steps)
 {
-  uint32_t state[4];
-  UChar key[16];
+  uint32_t state[4], key[4];
   int i;
 
-  for (i = 0; i < 16; i++) key[i] = (UChar) 128 + i;
+  for (i = 0; i < 16; i++) ((uint8_t *) key)[i] = (uint8_t) 128 + i;
 
   // 1st test: state is initialized with all-0 words
 

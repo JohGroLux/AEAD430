@@ -17,12 +17,12 @@
 
 // Function prototype:
 // -------------------
-// void state_update_msp(uint32_t *state, const uint8_t *key, int steps)
+// void state_update_msp(uint32_t *state, const uint32_t *key, int steps)
 //
 // Parameters:
 // -----------
 // `state`: pointer to an uint32-array containing 4 state-words
-// `key`: pointer to an uint8-array containing 16 key-bytes
+// `key`: pointer to an uint32-array containing 4 key-words
 // `steps`: number of steps (must be a multiple of 128)
 //
 // Return value:
