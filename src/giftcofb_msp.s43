@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// gift128f_msp.s43: MSP430 Asm implementation (ICC) of GIFT-128 (FS) cipher //
+// giftcofb_msp.s43: MSP430 Asm implementation (ICC) of GIFT-128 (FS) cipher //
 // Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
 // License: GPLv3 (see LICENSE file), other licenses available upon request. //
 // ------------------------------------------------------------------------- //
