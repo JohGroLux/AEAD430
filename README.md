@@ -6,15 +6,15 @@ The evaluation of the 10 finalists takes into account both security aspects and 
 
 This repository contains carefully-optimized MSP430 Assembler code for the most performance-critical building blocks of all ten final-round candidates. Many of the finalists are very efficient in software (as confirmed by the NIST benchmarking results) and outperform AES-GCM, the current "de-facto" standard for authenticated encryption. The most performance-critical component of these candidates is the underlying primitive, which is either a permutation (ASCON, Elephant, ISAP, PHOTON-Beetle, Sparkle, TinyJambu, Xoodyak), a block cipher (GIFT-COFB, Romulus) or a stream cipher (Grain-128AEAD). However, the implementations are not purely optimized for high speed but aim for a good trade-off between performance and (binary) code size. The assembler code is based on the syntax of [IAR Embedded Workbench for MSP430](https://www.iar.com/products/architectures/iar-embedded-workbench-for-msp430/), which differs slightly from the syntax of GCC. As shown in the table below, most of the ten components are very compact and have a code size of around 1 kB. The execution times were determined through cycle-accurate simulation using an MSP430F1611 as target device. On average, the Assembler implementation is twice as fast as the corresponding C code when it is compiled with medium optimization.
 
-| AEAD Algorithm   | Assembler Component         | Execution time | Binary code size |
-| :--------------: | :-------------------------: | :------------: | :--------------: |
-| ASCON128         | P6 (6 rounds)               | 3520 cycles    | 710 bytes        |
-| Elephant (Dumbo) | Spongent-π[160] (80 rounds) | cycles         | bytes            |
-| Grain-128AEAD    | Pre-output gen (16 bits)    | cycles         | bytes            |
-| ISAP             | P6 (6 rounds)               | 3520 cycles    | 710 bytes        |
-| GIFT-COFB        | GIFT-128 (FS, 40 rounds)    | 3839 cycles    | 1144 bytes       |
-| PHOTON-Beetle    | PHOTON256 (12 rounds)       | cycles         | bytes            | 
-| Romulus-N        | Skinny-128-384+ (40 rounds) | cycles         | bytes            |
-| Schwaemm256-128  | SPARKLE384 (7 steps)        | 5958 cycles    | 640 bytes        |
-| TinyJAMBU-128 v2 | P1024 (1024 steps)          | 2465 cycles    | 654 bytes        |
-| Xoodyak          | Xoodoo (12 rounds)          | 8996 cycles    | 572 bytes        |
+| AEAD Algorithm   | Assembler Component            | Execution time | Binary code size |
+| :--------------: | :----------------------------: | :------------: | :--------------: |
+| ASCON128         | P6 (6 rounds)                  | 3520 cycles    | 710 bytes        |
+| Elephant (Dumbo) | Spongent-π[160] (80 rounds)    | cycles         | bytes            |
+| Grain-128AEAD    | Pre-output generator (16 bits) | 589 cycles     | 916 bytes        |
+| ISAP             | P6 (6 rounds)                  | 3520 cycles    | 710 bytes        |
+| GIFT-COFB        | GIFT-128 (FS, 40 rounds)       | 3839 cycles    | 1144 bytes       |
+| PHOTON-Beetle    | PHOTON256 (12 rounds)          | cycles         | bytes            | 
+| Romulus-N        | Skinny-128-384+ (40 rounds)    | cycles         | bytes            |
+| Schwaemm256-128  | SPARKLE384 (7 steps)           | 5958 cycles    | 640 bytes        |
+| TinyJAMBU-128 v2 | P1024 (1024 steps)             | 2465 cycles    | 654 bytes        |
+| Xoodyak          | Xoodoo (12 rounds)             | 8996 cycles    | 572 bytes        |
