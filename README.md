@@ -9,7 +9,7 @@ This repository contains carefully-optimized MSP430 Assembler code for the most 
 | AEAD Algorithm   | Assembler Component            | Execution time | Binary code size |
 | :--------------: | :----------------------------: | :------------: | :--------------: |
 | ASCON128         | P6 (6 rounds)                  | 3520 cycles    | 710 bytes        |
-| Elephant (Dumbo) | Spongent-π[160] (80 rounds)    | 40495cycles    | 822 bytes        |
+| Elephant (Dumbo) | Spongent-π[160] (80 rounds)    | 40495 cycles   | 822 bytes        |
 | GIFT-COFB        | GIFT-128 (FS, 40 rounds)       | 3839 cycles    | 1144 bytes       |
 | Grain-128AEAD    | Pre-output generator (16 bits) | 589 cycles     | 916 bytes        |
 | ISAP             | P6 (6 rounds)                  | 3520 cycles    | 710 bytes        |
