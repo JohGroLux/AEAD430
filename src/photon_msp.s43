@@ -1,0 +1,428 @@
+photon_msp
+
+;
+; Photon Beetle in MSP430 assembler
+; ----------------------------------------
+;
+; written by Christian Franck and Johann Groﬂsch‰dl
+; (c) University of Luxembourg 2023
+;
+
+; Main optimizations wrt "Table1" implementation:
+; - optimized register usage
+; - integration of key addition and memcopy
+; - premultiplication of table values by 8
+
+
+NAME photon_msp
+
+PUBLIC photon_msp
+
+
+;------------------------------- DEFINITIONS ---------------------------------
+
+; constants stored in registers
+#define const_9    R4
+#define const_64   R5
+
+; various variables
+#define tmp        R6
+#define index_os   R6
+#define loop_count R7
+#define loop_end   R7
+
+; data word
+#define a0         R8
+#define a1         R9
+#define a2         R10
+#define a3         R11
+
+; pointers
+#define ptr_state  R12
+#define ptr_os     R13
+#define ptr_RC     R14
+#define ptr_table  R15
+
+;----------------------------------- DATA ------------------------------------
+
+
+os:       ; temp copy of state
+    DS 64
+
+
+RSEG CODE
+
+asm_begin:
+
+RC:
+    dc8    0x08, 0x00, 0x10, 0x30, 0x70, 0x78, 0x68, 0x48
+    dc8    0x18, 0x10, 0x00, 0x20, 0x60, 0x68, 0x78, 0x58
+    dc8    0x38, 0x30, 0x20, 0x00, 0x40, 0x48, 0x58, 0x78
+    dc8    0x70, 0x78, 0x68, 0x48, 0x08, 0x00, 0x10, 0x30
+    dc8    0x68, 0x60, 0x70, 0x50, 0x10, 0x18, 0x08, 0x28
+    dc8    0x58, 0x50, 0x40, 0x60, 0x20, 0x28, 0x38, 0x18
+    dc8    0x30, 0x38, 0x28, 0x08, 0x48, 0x40, 0x50, 0x70
+    dc8    0x60, 0x68, 0x78, 0x58, 0x18, 0x10, 0x00, 0x20
+    dc8    0x48, 0x40, 0x50, 0x70, 0x30, 0x38, 0x28, 0x08
+    dc8    0x10, 0x18, 0x08, 0x28, 0x68, 0x60, 0x70, 0x50
+    dc8    0x28, 0x20, 0x30, 0x10, 0x50, 0x58, 0x48, 0x68
+    dc8    0x50, 0x58, 0x48, 0x68, 0x28, 0x20, 0x30, 0x10
+
+table0:
+    dc16    0x4078, 0x3040, 0x6028, 0x7858
+    dc16    0x3048, 0x5830, 0x2838, 0x4850
+    dc16    0x2070, 0x1820, 0x3058, 0x7060
+    dc16    0x1868, 0x6018, 0x5850, 0x6828
+    dc16    0x7030, 0x6870, 0x4810, 0x3008
+    dc16    0x0000, 0x0000, 0x0000, 0x0000
+    dc16    0x6008, 0x2860, 0x5070, 0x0838
+    dc16    0x3818, 0x7838, 0x6808, 0x1848
+    dc16    0x1038, 0x4010, 0x1860, 0x3830
+    dc16    0x2820, 0x3828, 0x7068, 0x2078
+    dc16    0x5040, 0x7050, 0x7848, 0x4068
+    dc16    0x0850, 0x2008, 0x4030, 0x5018
+    dc16    0x4828, 0x1048, 0x2018, 0x2840
+    dc16    0x5810, 0x5058, 0x3878, 0x1070
+    dc16    0x7860, 0x4878, 0x0820, 0x6010
+    dc16    0x6858, 0x0868, 0x1040, 0x5820
+table1:
+    dc16    0x6058, 0x2078, 0x7028, 0x3028
+    dc16    0x2850, 0x1848, 0x6838, 0x5838
+    dc16    0x3060, 0x1070, 0x3858, 0x1858
+    dc16    0x5828, 0x4068, 0x7850, 0x6050
+    dc16    0x4808, 0x3830, 0x1810, 0x6810
+    dc16    0x0000, 0x0000, 0x0000, 0x0000
+    dc16    0x5038, 0x3008, 0x4870, 0x2870
+    dc16    0x6848, 0x5018, 0x4008, 0x7808
+    dc16    0x1830, 0x0838, 0x5060, 0x4060
+    dc16    0x7078, 0x5820, 0x1068, 0x3868
+    dc16    0x7868, 0x2840, 0x2048, 0x7048
+    dc16    0x4018, 0x4850, 0x2830, 0x2030
+    dc16    0x2040, 0x6828, 0x5818, 0x1018
+    dc16    0x3870, 0x6010, 0x0878, 0x5078
+    dc16    0x0810, 0x7060, 0x3020, 0x4820
+    dc16    0x1020, 0x7858, 0x6040, 0x0840
+table2:
+    dc16    0x1858, 0x4830, 0x4818, 0x5058
+    dc16    0x6050, 0x1058, 0x1060, 0x7050
+    dc16    0x4060, 0x6818, 0x6840, 0x2860
+    dc16    0x3028, 0x0860, 0x0830, 0x3828
+    dc16    0x7808, 0x5868, 0x5878, 0x2008
+    dc16    0x0000, 0x0000, 0x0000, 0x0000
+    dc16    0x5838, 0x2028, 0x2058, 0x7838
+    dc16    0x7048, 0x6078, 0x6070, 0x1048
+    dc16    0x2030, 0x7840, 0x7820, 0x5830
+    dc16    0x5078, 0x1838, 0x1850, 0x4878
+    dc16    0x3868, 0x3070, 0x3038, 0x0868
+    dc16    0x1018, 0x7020, 0x7010, 0x6018
+    dc16    0x0840, 0x3810, 0x3808, 0x3040
+    dc16    0x2870, 0x4050, 0x4028, 0x6870
+    dc16    0x6810, 0x2848, 0x2868, 0x4010
+    dc16    0x4820, 0x5008, 0x5048, 0x1820
+table3:
+    dc16    0x0808, 0x4018, 0x6018, 0x1868
+    dc16    0x2020, 0x3060, 0x2860, 0x6008
+    dc16    0x4848, 0x2040, 0x3040, 0x4078
+    dc16    0x1010, 0x1830, 0x5830, 0x3048
+    dc16    0x2828, 0x7078, 0x4878, 0x7860
+    dc16    0x0000, 0x0000, 0x0000, 0x0000
+    dc16    0x4040, 0x6058, 0x5058, 0x5810
+    dc16    0x5858, 0x3870, 0x6870, 0x7030
+    dc16    0x6868, 0x1020, 0x1820, 0x2070
+    dc16    0x3030, 0x2850, 0x7050, 0x5040
+    dc16    0x6060, 0x5038, 0x7838, 0x3818
+    dc16    0x7878, 0x0810, 0x4010, 0x1038
+    dc16    0x7070, 0x4808, 0x2008, 0x0850
+    dc16    0x1818, 0x5828, 0x3828, 0x2820
+    dc16    0x5050, 0x7868, 0x0868, 0x6858
+    dc16    0x3838, 0x6848, 0x1048, 0x4828
+table4:
+    dc16    0x4838, 0x2820, 0x7830, 0x1058
+    dc16    0x1078, 0x3818, 0x4858, 0x4050
+    dc16    0x6850, 0x5810, 0x7018, 0x0860
+    dc16    0x0870, 0x5040, 0x6860, 0x2028
+    dc16    0x5840, 0x1038, 0x3068, 0x5008
+    dc16    0x0000, 0x0000, 0x0000, 0x0000
+    dc16    0x2068, 0x7030, 0x0828, 0x1838
+    dc16    0x6020, 0x0850, 0x1878, 0x2848
+    dc16    0x7828, 0x6008, 0x3840, 0x4830
+    dc16    0x1808, 0x6858, 0x2038, 0x6078
+    dc16    0x3010, 0x4828, 0x4070, 0x5868
+    dc16    0x7058, 0x3048, 0x5020, 0x6818
+    dc16    0x3860, 0x1868, 0x2810, 0x7840
+    dc16    0x4048, 0x7860, 0x1050, 0x3070
+    dc16    0x2818, 0x2070, 0x6048, 0x3810
+    dc16    0x5030, 0x4078, 0x5808, 0x7020
+table5:
+    dc16    0x0860, 0x7848, 0x1828, 0x1050
+    dc16    0x2028, 0x4810, 0x6038, 0x4070
+    dc16    0x4830, 0x7068, 0x4058, 0x0828
+    dc16    0x1058, 0x6808, 0x3050, 0x2038
+    dc16    0x2848, 0x3058, 0x7810, 0x5020
+    dc16    0x0000, 0x0000, 0x0000, 0x0000
+    dc16    0x4050, 0x0820, 0x5870, 0x1878
+    dc16    0x5868, 0x1860, 0x7008, 0x2810
+    dc16    0x6818, 0x3878, 0x2060, 0x4858
+    dc16    0x3070, 0x2018, 0x5068, 0x6048
+    dc16    0x6078, 0x4030, 0x3848, 0x5808
+    dc16    0x7840, 0x5070, 0x1030, 0x6860
+    dc16    0x7020, 0x2838, 0x0818, 0x7830
+    dc16    0x1838, 0x1040, 0x2878, 0x3068
+    dc16    0x5008, 0x6028, 0x6820, 0x3840
+    dc16    0x3810, 0x5850, 0x4840, 0x7018
+table6:
+    dc16    0x5860, 0x3020, 0x4018, 0x4848
+    dc16    0x5028, 0x5818, 0x3060, 0x1010
+    dc16    0x6030, 0x1810, 0x2040, 0x6868
+    dc16    0x2858, 0x6040, 0x1830, 0x0808
+    dc16    0x0848, 0x6838, 0x7078, 0x5858
+    dc16    0x0000, 0x0000, 0x0000, 0x0000
+    dc16    0x3850, 0x2830, 0x6058, 0x2020
+    dc16    0x4868, 0x7850, 0x3870, 0x6060
+    dc16    0x3018, 0x4008, 0x1020, 0x7878
+    dc16    0x7870, 0x3858, 0x2850, 0x1818
+    dc16    0x6878, 0x7028, 0x5038, 0x3030
+    dc16    0x1840, 0x2048, 0x0810, 0x7070
+    dc16    0x4020, 0x1068, 0x4808, 0x3838
+    dc16    0x7038, 0x5060, 0x5828, 0x4040
+    dc16    0x1008, 0x4870, 0x7868, 0x2828
+    dc16    0x2010, 0x0878, 0x6848, 0x5050
+table7:
+    dc16    0x3820, 0x7018, 0x2030, 0x5870
+    dc16    0x7818, 0x6860, 0x1858, 0x5068
+    dc16    0x5010, 0x3840, 0x1018, 0x6038
+    dc16    0x7040, 0x7830, 0x4060, 0x2878
+    dc16    0x4038, 0x1878, 0x3868, 0x0818
+    dc16    0x0000, 0x0000, 0x0000, 0x0000
+    dc16    0x6830, 0x4858, 0x3028, 0x3848
+    dc16    0x2050, 0x4070, 0x5078, 0x4840
+    dc16    0x2808, 0x5020, 0x0840, 0x3050
+    dc16    0x0858, 0x1050, 0x5838, 0x7810
+    dc16    0x1028, 0x2038, 0x2870, 0x6820
+    dc16    0x5848, 0x2810, 0x4820, 0x1828
+    dc16    0x6068, 0x5808, 0x6810, 0x4058
+    dc16    0x4860, 0x0828, 0x6050, 0x7008
+    dc16    0x1870, 0x3068, 0x7048, 0x1030
+    dc16    0x3078, 0x6048, 0x7808, 0x2060
+
+;------------------------------- MAIN FUNCTION -------------------------------
+
+
+
+// compute permutation ----------------------------------
+
+
+photon_msp: ; parameters : R12 pointer to state
+  
+    PUSH.W  R4
+    PUSH.W  R5
+    PUSH.W  R6
+    PUSH.W  R7
+    PUSH.W  R8
+    PUSH.W  R9
+    PUSH.W  R10
+    PUSH.W  R11
+
+    ; init constants
+    MOV.W   #0x40,const_64
+    MOV.W   #0x09,const_9
+
+    ; init pointers
+    MOV.W   #os,ptr_os
+    MOV.W   #RC,ptr_RC
+
+    ; pre-multiply by 8 
+    ; (PS: this could be merged with memcopy below)
+    MOV.W   ptr_state,loop_end
+    ADD.W   const_64,loop_end
+lpre:
+    MOV.W   @ptr_state+,tmp
+    ADD     tmp,tmp
+    ADD     tmp,tmp
+    ADD     tmp,tmp
+    MOV.W   tmp,0xfffe(ptr_state)
+    MOV.W   @ptr_state+,tmp
+    ADD     tmp,tmp
+    ADD     tmp,tmp
+    ADD     tmp,tmp
+    MOV.W   tmp,0xfffe(ptr_state)
+    CMP.W   ptr_state,loop_end
+    JNE     lpre
+    SUB.W   const_64,ptr_state
+
+
+    ; loop for 12 rounds
+    MOV.W   #12,loop_count
+loop2:
+
+    ; memcopy & addkey
+    MOV.W   @ptr_state+,tmp
+    XOR.W   @ptr_RC+,tmp
+    MOV.W   tmp,0(ptr_os)
+    MOV.W   @ptr_state+,tmp
+    XOR.W   @ptr_RC+,tmp
+    MOV.W   tmp,2(ptr_os)
+    MOV.W   @ptr_state+,tmp
+    XOR.W   @ptr_RC+,tmp
+    MOV.W   tmp,4(ptr_os)
+    MOV.W   @ptr_state+,tmp
+    XOR.W   @ptr_RC+,tmp
+    MOV.W   tmp,6(ptr_os)
+
+    MOV.W   @ptr_state+,8(ptr_os)
+    MOV.W   @ptr_state+,10(ptr_os)
+    MOV.W   @ptr_state+,12(ptr_os)
+    MOV.W   @ptr_state+,14(ptr_os)
+        
+    MOV.W   @ptr_state+,16(ptr_os)
+    MOV.W   @ptr_state+,18(ptr_os)
+    MOV.W   @ptr_state+,20(ptr_os)
+    MOV.W   @ptr_state+,22(ptr_os)
+       
+    MOV.W   @ptr_state+,24(ptr_os)
+    MOV.W   @ptr_state+,26(ptr_os)
+    MOV.W   @ptr_state+,28(ptr_os)
+    MOV.W   @ptr_state+,30(ptr_os)
+            
+    MOV.W   @ptr_state+,32(ptr_os)
+    MOV.W   @ptr_state+,34(ptr_os)
+    MOV.W   @ptr_state+,36(ptr_os)
+    MOV.W   @ptr_state+,38(ptr_os)
+            
+    MOV.W   @ptr_state+,40(ptr_os)
+    MOV.W   @ptr_state+,42(ptr_os)
+    MOV.W   @ptr_state+,44(ptr_os)
+    MOV.W   @ptr_state+,46(ptr_os)
+            
+    MOV.W   @ptr_state+,48(ptr_os)
+    MOV.W   @ptr_state+,50(ptr_os)
+    MOV.W   @ptr_state+,52(ptr_os)
+    MOV.W   @ptr_state+,54(ptr_os)
+
+    MOV.W   @ptr_state+,56(ptr_os)
+    MOV.W   @ptr_state+,58(ptr_os)
+    MOV.W   @ptr_state+,60(ptr_os)
+    MOV.W   @ptr_state+,62(ptr_os)
+            
+    SUB.W   const_64,ptr_state
+
+    ; inner loop with table lookups
+    MOV.W   #0,index_os   ; C = 0..7
+loop:
+    MOV.B   os(index_os),ptr_table ; os[c][0]
+    ADD.W   #table0,ptr_table
+    MOV.W   @ptr_table+,a0
+    MOV.W   @ptr_table+,a1
+    MOV.W   @ptr_table+,a2
+    MOV.W   @ptr_table+,a3
+
+    ADD.W   const_9,index_os
+    BIC.W   const_64,index_os
+    MOV.B   os(index_os),ptr_table ; os[(c+1)&7][1]
+    ADD.W   #table1,ptr_table
+    XOR.W   @ptr_table+,a0
+    XOR.W   @ptr_table+,a1
+    XOR.W   @ptr_table+,a2
+    XOR.W   @ptr_table+,a3
+
+    ADD.W   const_9,index_os
+    BIC.W   const_64,index_os
+    MOV.B   os(index_os),ptr_table ; os[(c+2)&7][2]
+    ADD.W   #table2,ptr_table
+    XOR.W   @ptr_table+,a0
+    XOR.W   @ptr_table+,a1
+    XOR.W   @ptr_table+,a2
+    XOR.W   @ptr_table+,a3
+
+    ADD.W   const_9,index_os
+    BIC.W   const_64,index_os
+    MOV.B   os(index_os),ptr_table ; os[(c+3)&7][3]
+    ADD.W   #table3,ptr_table
+    XOR.W   @ptr_table+,a0
+    XOR.W   @ptr_table+,a1
+    XOR.W   @ptr_table+,a2
+    XOR.W   @ptr_table+,a3
+
+    ADD.W   const_9,index_os
+    BIC.W   const_64,index_os
+    MOV.B   os(index_os),ptr_table ; os[(c+4)&7][4]
+    ADD.W   #table4,ptr_table
+    XOR.W   @ptr_table+,a0
+    XOR.W   @ptr_table+,a1
+    XOR.W   @ptr_table+,a2
+    XOR.W   @ptr_table+,a3
+
+    ADD.W   const_9,index_os
+    BIC.W   const_64,index_os
+    MOV.B   os(index_os),ptr_table ; os[(c+5)&7][5]
+    ADD.W   #table5,ptr_table
+    XOR.W   @ptr_table+,a0
+    XOR.W   @ptr_table+,a1
+    XOR.W   @ptr_table+,a2
+    XOR.W   @ptr_table+,a3
+
+    ADD.W   const_9,index_os
+    BIC.W   const_64,index_os
+    MOV.B   os(index_os),ptr_table ; os[(c+6)&7][6]
+    ADD.W   #table6,ptr_table
+    XOR.W   @ptr_table+,a0
+    XOR.W   @ptr_table+,a1
+    XOR.W   @ptr_table+,a2
+    XOR.W   @ptr_table+,a3
+
+    ADD.W   const_9,index_os
+    BIC.W   const_64,index_os
+    MOV.B   os(index_os),ptr_table ; os[(c+7)&7][7]
+    ADD.W   #table7,ptr_table
+    XOR.W   @ptr_table+,a0
+    XOR.W   @ptr_table+,a1
+    XOR.W   @ptr_table+,a2
+    XOR.W   @ptr_table+,a3
+    
+    ; store into state
+    MOV.W   a3,0(ptr_state)
+    MOV.W   a2,2(ptr_state)
+    MOV.W   a1,4(ptr_state)
+    MOV.W   a0,6(ptr_state)
+    ADD.W   #8,ptr_state
+
+    ADD.W   const_9,index_os
+    BIC.W   const_64,index_os
+
+    CMP.W   #0,index_os
+    JNZ     loop
+    
+    SUB.W   const_64,ptr_state
+    
+    SUB.W   #1,loop_count
+    JNZ     loop2
+
+    ; post-divide by 8
+    MOV.W   ptr_state,loop_end
+    ADD.W   const_64,loop_end
+lpost:
+    MOV.W   @ptr_state+,tmp
+    RRA     tmp
+    RRA     tmp
+    RRA     tmp
+    MOV.W   tmp,0xfffe(ptr_state)
+    MOV.W   @ptr_state+,tmp
+    RRA     tmp
+    RRA     tmp
+    RRA     tmp
+    MOV.W   tmp,0xfffe(ptr_state)
+    CMP.W   ptr_state,loop_end
+    JNE     lpost
+
+
+    POP.W   R11
+    POP.W   R10
+    POP.W   R9
+    POP.W   R8
+    POP.W   R7
+    POP.W   R6
+    POP.W   R5
+    POP.W   R4
+    RET
+asm_end:
+END
