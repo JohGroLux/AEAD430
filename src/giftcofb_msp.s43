@@ -610,8 +610,8 @@ SWMOV1 macro ml, mh, bl, bh, al, ah
     endm
 
 
-// The macro `ADDRKEY` XORs two 32-bit words from the roundkey-array (pointed
-// to by `kptr`) to quad-byte operands.
+// The macro `ADDRKEY` XORs two 32-bit words from the roundkey-array (accessed
+// through pointer `kptr`) to quad-byte operands.
 
 ADDRKEY macro a0, a1, a2, a3
     xor.w   @kptr+, a0
@@ -620,8 +620,8 @@ ADDRKEY macro a0, a1, a2, a3
     xor.w   @kptr+, a3
     endm
 
-// The macro `ADDRKEY` XORs a 32-bit word from the RCON-array (pointed to by
-// `rptr`) to a quad-byte operand.
+// The macro `ADDRCON` XORs a 32-bit word from the RCON-array (accessed through
+// pointer `rptr`) to a quad-byte operand.
 
 ADDRCON macro a0, a1
     xor.w   @rptr+, a0
