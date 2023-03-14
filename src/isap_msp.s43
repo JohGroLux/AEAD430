@@ -1,0 +1,554 @@
+///////////////////////////////////////////////////////////////////////////////
+// isap_msp.s43: MSP430 Asm implementation (ICC) of ASCON128 permutation.    //
+// Version 1.0.0 (30-05-22), see <http://github.com/johgrolux/> for updates. //
+// License: GPLv3 (see LICENSE file), other licenses available upon request. //
+// ------------------------------------------------------------------------- //
+// This source code is free software: you can redistribute it and/or modify  //
+// it under the terms of the GNU General Public License as published by the  //
+// Free Software Foundation, either version 3 of the License, or (at your    //
+// option) any later version. This source code is distributed in the hope    //
+// that it will be useful, but WITHOUT ANY WARRANTY; without even the        //
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  //
+// See the GNU General Public License for more details. You should have      //
+// received a copy of the GNU General Public License along with this source  //
+// code. If not, see <http://www.gnu.org/licenses/>.                         //
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Function prototype:
+// -------------------
+// void isap_msp(State *s, int nr)
+//
+// Parameters:
+// -----------
+// `s`: pointer to a union containing five 64-bit state-words
+// `nr`: number of rounds
+//
+// Return value:
+// -------------
+// None
+
+
+name isap                   // module name
+rseg CODE(2)                // place module in 'CODE' segment with alignment 4
+
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////////// REGISTER NAMES AND CONSTANTS /////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Four MSP registers form an Octa-byte Register (OR) that can store a 64-bit
+// operand, whereby little-endian format is used, i.e. the least-significant
+// quarter of the 64-bit operand is in the lowest register.
+
+// Two octa-byte registers for linear layer
+#define l0 r4
+#define l1 r5
+#define l2 r6
+#define l3 r7
+#define t0 r8
+#define t1 r9
+#define t2 r10
+#define t3 r11
+
+// Eight 16-bit registers for sbox layer
+#define s0 r4
+#define s1 r5
+#define s2 r6
+#define s3 r7
+#define s4 r8
+#define ta r9
+#define tb r10
+#define tc r11
+
+// Pointer to struct containing the state
+#define sptr r12
+// Register holding the number of rounds
+#define rounds r13
+// Register for loop-counter of sbox loop
+#define scnt r14
+// Temporary register for 8-bit rotations
+#define tr r14
+// Register for 8-bit round-constant RCON
+#define rcon r15
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////// MACROS FOR OCTA-BYTE (64-BIT) ARITHMETIC AND LOGICAL OPERATIONS ///////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `OMOV` moves an octa-byte operand: A = B. An implicit 16/32/48-bit
+// rotation of operand B is possible, i.e the macro can also perform operations
+// of the form A = (B >>> 16) and A = (B <<< 32).
+
+OMOV macro b0, b1, b2, b3, a0, a1, a2, a3
+    mov.w   b0, a0
+    mov.w   b1, a1
+    mov.w   b2, a2
+    mov.w   b3, a3
+    endm
+
+
+// The macro `OROL` rotates an octa-byte operand one bit left, whereby the
+// rotation is performed in place: A = A <<< 1.
+
+OROL macro a0, a1, a2, a3
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    endm
+
+
+// The macro `OROL2` rotates an octa-byte operand two bits left, whereby the
+// rotation is performed in place: A = A <<< 1.
+
+OROL2 macro a0, a1, a2, a3
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    endm
+
+
+// The macro `OROL3` rotates an octa-byte operand three bits left, whereby the
+// rotation is performed in place: A = A <<< 1.
+
+OROL3 macro a0, a1, a2, a3
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    rla.w   a0
+    rlc.w   a1
+    rlc.w   a2
+    rlc.w   a3
+    adc.w   a0
+    endm
+
+
+// The macro `OROL8` rotates an octa-byte operand eight bits left, whereby the
+// rotation is performed in place: A = A <<< 8. This macro requires a temporary
+// register `tr`.
+
+OROL8 macro a0, a1, a2, a3
+    // swap bytes within each word
+    swpb    a0
+    swpb    a1
+    swpb    a2
+    swpb    a3
+    // swap the LSBs of a0 and a1
+    mov.b   a0, tr
+    xor.b   a1, tr
+    xor.w   tr, a0
+    xor.w   tr, a1
+    // swap the LSBs of a2 and a3
+    mov.b   a2, tr
+    xor.b   a3, tr
+    xor.w   tr, a2
+    xor.w   tr, a3
+    // swap the LSBs of a0 and a2
+    mov.b   a0, tr
+    xor.b   a2, tr
+    xor.w   tr, a0
+    xor.w   tr, a2
+    endm
+
+
+// The macro `OROR` rotates an octa-byte operand one bit right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+OROR macro a0, a1, a2, a3
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `OROR2` rotates an octa-byte operand two bits right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+OROR2 macro a0, a1, a2, a3
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `OROR3` rotates an octa-byte operand three bits right, whereby the
+// rotation is performed in place: A = A >>> 1.
+
+OROR3 macro a0, a1, a2, a3
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    bit.w   #1, a0
+    rrc.w   a3
+    rrc.w   a2
+    rrc.w   a1
+    rrc.w   a0
+    endm
+
+
+// The macro `OROR8` rotates an octa-byte operand eight bits right, whereby the
+// rotation is performed in place: A = A >>> 8. This macro requires a temporary
+// register `tr`.
+
+OROR8 macro a0, a1, a2, a3
+    // swap the LSBs of a0 and a1
+    mov.b   a0, tr
+    xor.b   a1, tr
+    xor.w   tr, a0
+    xor.w   tr, a1
+    // swap the LSBs of a1 and a2
+    mov.b   a1, tr
+    xor.b   a2, tr
+    xor.w   tr, a1
+    xor.w   tr, a2
+    // swap the LSBs of a2 and a3
+    mov.b   a2, tr
+    xor.b   a3, tr
+    xor.w   tr, a2
+    xor.w   tr, a3
+    // swap bytes within each word
+    swpb    a0
+    swpb    a1
+    swpb    a2
+    swpb    a3
+    endm
+
+
+// The macro `OXOR` bitwise XORs two octa-byte operands: A = A ^ B. An implicit
+// 16/32/48-bit rotation of operand B is possible, i.e the macro can also
+// perform operations of the form A = A ^ (B >>> 16) and A = A ^ (B <<< 32).
+
+OXOR macro b0, b1, b2, b3, a0, a1, a2, a3
+    xor.w   b0, a0
+    xor.w   b1, a1
+    xor.w   b2, a2
+    xor.w   b3, a3
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+///////// MACROS FOR LOADING AND STORING AN OCTA-BYTE (64-BIT) OPERAND ////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Note: The MSP430 architecture uses little-endian memory format, which means
+// the least-significant quarter of a 64-bit word is at the lowest address.
+
+
+// The macro `OLDSI` loads an oact-byte operand from RAM via pointer `sptr`
+// using the post-increment addressing mode: A = RAM[sptr++]. An implicit
+// 16/32/48-bit rotation of the loaded operand is possible, i.e. the macro can
+// also perform an operation of the form A = RAM[sptr++] >>> 16 and
+// A = RAM[sptr++] <<< 32. 
+
+OLDSI macro a0, a1, a2, a3
+    mov.w   @sptr+, a0
+    mov.w   @sptr+, a1
+    mov.w   @sptr+, a2
+    mov.w   @sptr+, a3
+    endm
+
+
+// The macro `OLDSO` loads an octa-byte operand from RAM via pointer `sptr` 
+// using the base+offset (i.e. displacement) addressing mode: A = RAM[sptr+B].
+// An implicit 16/32/48-bit rotation of the loaded operand is possible, i.e.
+// the macro can also perform operations of the form A = RAM[sptr+B] >>> 16 and
+// A = RAM[sptr+B] <<< 32.
+
+OLDSO macro b0, b1, b2, b3, a0, a1, a2, a3
+    mov.w   b0(sptr), a0
+    mov.w   b1(sptr), a1
+    mov.w   b2(sptr), a2
+    mov.w   b3(sptr), a3
+    endm
+
+
+// The macro `OSTSO` stores an octa-byte operand to RAM via pointer `sptr`
+// using the base+offset (i.e. displacement) addressing mode: RAM[sptr+B] = A.
+// An implicit 16/32/48-bit rotation of the operand to be stored is possible,
+// i.e. the macro can also perform operations of the form
+// RAM[sptr+B] = (A >>> 16) and RAM[sptr+B] = (A <<< 32).
+
+OSTSO macro a0, a1, a2, a3, b0, b1, b2, b3
+    mov.w   a0, b0(sptr)
+    mov.w   a1, b1(sptr)
+    mov.w   a2, b2(sptr)
+    mov.w   a3, b3(sptr)
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////////////////// HELPER MACROS FOR THE ASCON PERMUTATION ///////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `PROLOGUE` pushes all callee-saved registers on the stack.
+
+PROLOGUE macro
+    push.w  r4
+    push.w  r5
+    push.w  r6
+    push.w  r7
+    push.w  r8
+    push.w  r9
+    push.w  r10
+    push.w  r11
+    endm
+
+// The macro `EPILOGUE` pops all callee-saved registers from the stack and
+// returns to the caller.
+
+EPILOGUE macro
+    pop.w   r11
+    pop.w   r10
+    pop.w   r9
+    pop.w   r8
+    pop.w   r7
+    pop.w   r6
+    pop.w   r5
+    pop.w   r4
+    ret
+    endm
+
+
+// The macro `INITVARS` initializes local variables (the initial RCON value is
+// 15*rounds + 0x3C = (rounds << 4) - rounds + 0x3C).
+
+INITVARS macro
+    mov.w   rounds, rcon
+    rla.w   rcon
+    rla.w   rcon
+    rla.w   rcon
+    rla.w   rcon
+    sub.w   rounds, rcon
+    add.w   #0x3C, rcon
+    endm
+
+
+// The macro `ADDRCON` XORs a round-constant to state-word X2. 
+
+ADDRCON macro
+    xor.w   rcon, 16(sptr)
+    sub.w   #0xF, rcon
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////////////////// MACROS FOR NONLINEAR SUBSTITUTION LAYER ///////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `LDSLICE` loads a 16-bit slice of each of the five 64-bit words
+// of the state.
+
+LDSLICE macro
+    mov.w   @sptr+, s0
+    mov.w   6(sptr), s1
+    mov.w   14(sptr), s2
+    mov.w   22(sptr), s3
+    mov.w   30(sptr), s4
+    endm
+
+
+// The macro `SBOXSLICE` computes a 16-bit slice of the non-linear substitution
+// operation. This implementation uses the improved formulae of Campos et al
+// (Proceedings of CANS 2020).
+
+SBOXSLICE macro
+    mov.w   s1, ta          // ta = i1
+    mov.w   s0, tb          // tb = i0
+    mov.w   s3, tc          // tc = i3
+    xor.w   s2, ta          // ta = ta ^ i2 = i1 ^ i2
+    xor.w   s4, tb          // tb = tb ^ i4 = i0 ^ i4
+    xor.w   s4, tc          // tc = tc ^ i4 = i3 ^ i4
+    inv.w   s4              // i4 = ~i4
+    bis.w   s3, s4          // i4 = i4 | i3
+    xor.w   ta, s4          // i4 = i4 ^ ta -> i4 contains o2
+    xor.w   s2, s3          // i3 = i3 ^ i2
+    bis.w   ta, s3          // i3 = i3 | ta
+    xor.w   tb, s3          // i3 = i3 ^ tb -> i3 contains o1
+    xor.w   tb, s2          // i2 = i2 ^ tb
+    bis.w   s1, s2          // i2 = i2 | i1
+    xor.w   tc, s2          // i2 = i2 ^ tc -> i2 contains o0
+    bic.w   tb, s1          // i1 = i1 & ~tb
+    xor.w   tc, s1          // i1 = i1 ^ tc -> i1 contains o4
+    bis.w   tc, s0          // i0 = i0 | tc
+    xor.w   ta, s0          // i0 = i0 ^ ta -> i0 contains o3
+    endm
+
+
+// The macro `STSLICE` stores a 16-bit slice of each of the five 64-bit words
+// of the state.
+
+STSLICE macro
+    mov.w   s2, -2(sptr)
+    mov.w   s3, 6(sptr)
+    mov.w   s4, 14(sptr)
+    mov.w   s0, 22(sptr)
+    mov.w   s1, 30(sptr)
+    endm
+
+
+// The macro `SBOXLAYER` computes the complete non-linear substitution layer in
+// a 16-bit slice-wise fashion. This implementation is optimized for small code
+// size.
+
+SBOXLAYER macro
+    mov.w   #4, scnt
+SBOXLOOP:
+    LDSLICE
+    SBOXSLICE
+    STSLICE
+    dec.w   scnt
+    jnz     SBOXLOOP
+    sub.w   #8, sptr
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+////////////////////// MACROS FOR LINEAR DIFFUSION LAYER //////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `LINSWX0` computes the linear diffusion operation on state-word
+// X0: X0 = X0 ^ (X0 >>> 19) ^ (X0 >>> 28).
+
+LINSWX0 macro
+    OLDSI   l0,l1,l2,l3                 // load X0
+    OMOV    l0,l1,l2,l3, t0,t1,t2,t3    // T = X0
+    OROR3   t0,t1,t2,t3                 // T = T >>> 3
+    OXOR    t1,t2,t3,t0, l0,l1,l2,l3    // X0 = X0 ^ (T >>> 16)
+    OROR    t0,t1,t2,t3                 // T = T >>> 1
+    OROR8   t0,t1,t2,t3                 // T = T >>> 8
+    OXOR    t1,t2,t3,t0, l0,l1,l2,l3    // X0 = X0 ^ (T >>> 16)
+    OSTSO   l0,l1,l2,l3, -8,-6,-4,-2    // store X0
+    endm
+
+
+// The macro `LINSWX1` computes the linear diffusion operation on state-word
+// X1: X1 = X1 ^ (X1 >>> 61) ^ (X1 >>> 39).
+
+LINSWX1 macro
+    OLDSI   l0,l1,l2,l3                 // load X1
+    OMOV    l0,l1,l2,l3, t0,t1,t2,t3    // T = X1
+    OROL3   l0,l1,l2,l3                 // X1 = X1 <<< 3
+    OXOR    t0,t1,t2,t3, l0,l1,l2,l3    // X1 = X1 ^ T
+    OROR8   t0,t1,t2,t3                 // T = T >>> 8
+    OROL    t0,t1,t2,t3                 // T = T <<< 1
+    OXOR    t2,t3,t0,t1, l0,l1,l2,l3    // X1 = X1 ^ (T >>> 32)
+    OSTSO   l0,l1,l2,l3, -8,-6,-4,-2    // store X1
+    endm
+
+
+// The macro `LINSWX2` computes the linear diffusion operation on state-word
+// X2: X2 = X2 ^ (X2 >>> 1) ^ (X2 >>> 6).
+
+LINSWX2 macro
+    OLDSI   l0,l1,l2,l3                 // load X2
+    OMOV    l0,l1,l2,l3, t0,t1,t2,t3    // T = X2
+    OROR    t0,t1,t2,t3                 // T = T >>> 1
+    OXOR    l0,l1,l2,l3, t0,t1,t2,t3    // T = T ^ X2
+    OROR8   l0,l1,l2,l3                 // X2 = X2 >>> 8
+    OROL2   l0,l1,l2,l3                 // X2 = X2 <<< 2
+    OXOR    t0,t1,t2,t3, l0,l1,l2,l3    // X2 = X2 ^ T
+    OSTSO   l0,l1,l2,l3, -8,-6,-4,-2    // store X2
+    endm
+
+
+// The macro `LINSWX3` computes the linear diffusion operation on state-word
+// X3: X3 = X3 ^ (X3 >>> 10) ^ (X3 >>> 17).
+
+LINSWX3 macro
+    OLDSI   l0,l1,l2,l3                 // load X3
+    OMOV    l0,l1,l2,l3, t0,t1,t2,t3    // T = X3
+    OROR    t0,t1,t2,t3                 // T = T >>> 1
+    OXOR    t1,t2,t3,t0, l0,l1,l2,l3    // X3 = X3 ^ (T >>> 16)
+    OROR    t0,t1,t2,t3                 // T = T >>> 1
+    OROR8   t0,t1,t2,t3                 // T = T >>> 8
+    OXOR    t0,t1,t2,t3, l0,l1,l2,l3    // X3 = X3 ^ T
+    OSTSO   l0,l1,l2,l3, -8,-6,-4,-2    // store X3
+    endm
+
+
+// The macro `LINSWX4` computes the linear diffusion operation on state-word
+// X4: X4 = X4 ^ (X4 >>> 7) ^ (X4 >>> 41).
+
+LINSWX4 macro
+    OLDSI   l0,l1,l2,l3                 // load X4
+    OMOV    l0,l1,l2,l3, t0,t1,t2,t3    // T = X4
+    OROR8   t0,t1,t2,t3                 // T = T >>> 8
+    OROL    t0,t1,t2,t3                 // T = T <<< 1
+    OXOR    t0,t1,t2,t3, l0,l1,l2,l3    // X4 = X4 ^ T
+    OROR2   t0,t1,t2,t3                 // T = T >>> 2
+    OXOR    t2,t3,t0,t1, l0,l1,l2,l3    // X4 = X4 ^ (T >>> 32)
+    OSTSO   l0,l1,l2,l3, -8,-6,-4,-2    // store X4
+    endm
+
+
+// The macro `LINLAYER` computes the complete linear diffusion layer.
+
+LINLAYER macro
+    LINSWX0
+    LINSWX1
+    LINSWX2
+    LINSWX3
+    LINSWX4
+    sub.w #40, sptr
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+////////////////////////////// ASCON PERMUTATION //////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+align 2
+public isap_msp 
+isap_msp:
+    PROLOGUE                // push callee-saved registers
+    INITVARS                // initialize local variables
+ROUNDLOOP:                  // start of round-loop
+    ADDRCON                 // macro for addition of round-constant
+    SBOXLAYER               // macro for nonlinear substitution layer
+    LINLAYER                // macro for linear diffusion layer
+    dec.w rounds            // decrement loop-counter
+    jnz ROUNDLOOP           // jump back to start of loop if loop-counter != 0
+    EPILOGUE                // pop callee-saved registers and return
+
+
+end
