@@ -1,0 +1,372 @@
+///////////////////////////////////////////////////////////////////////////////
+// grain128_msp.s43: MSP430 Asm implementation (ICC) of Grain Pre-Output Gen //
+// Version 1.0.0 (30-11-22), see <http://github.com/johgrolux/> for updates. //
+// License: GPLv3 (see LICENSE file), other licenses available upon request. //
+// ------------------------------------------------------------------------- //
+// This source code is free software: you can redistribute it and/or modify  //
+// it under the terms of the GNU General Public License as published by the  //
+// Free Software Foundation, either version 3 of the License, or (at your    //
+// option) any later version. This source code is distributed in the hope    //
+// that it will be useful, but WITHOUT ANY WARRANTY; without even the        //
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  //
+// See the GNU General Public License for more details. You should have      //
+// received a copy of the GNU General Public License along with this source  //
+// code. If not, see <http://www.gnu.org/licenses/>.                         //
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Function prototype:
+// -------------------
+// uint16_t grain_keystr16_msp(grain_ctx *grain)
+//
+// Parameters:
+// -----------
+// `grain`: pointer to a grain-context containing two 128-bit registers
+//
+// Return value:
+// -------------
+// 16-bit pre-output word (y)
+
+
+name grain128               // module name
+rseg CODE(2)                // place module in 'CODE' segment with alignment 4
+
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////////// REGISTER NAMES AND CONSTANTS /////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Eight MSP430 registers form a Hexadeca-byte Register (HDR) that can store a
+// 128-bit operand, whereby little-endian format is used, i.e. the least-
+// significant word of the 128-bit operand is in the lowest register.
+
+// Hexadeca-byte shift-registers for LFSR and NFSR
+#define sr0 R4
+#define sr1 R5
+#define sr2 R6
+#define sr3 R7
+#define sr4 R8
+#define sr5 R9
+#define sr6 R10
+#define sr7 R11
+
+// Other registers (state-pointer, temp values, etc.) 
+#define grain R12
+#define tmp R12
+#define l8 R13
+#define n8 R14
+#define yr R15
+
+// Temporary variables for f/h function on the stack
+#define t0 0(sp)
+#define t1 2(sp)
+#define t2 4(sp)
+#define t3 6(sp)
+#define y0 8(sp)
+#define y1 10(sp)
+#define y2 12(sp)
+#define y3 14(sp)
+
+
+///////////////////////////////////////////////////////////////////////////////
+///// MACROS FOR HEXADECA-BYTE (128-BIT) ARITHMETIC AND LOGICAL OPERATIONS ////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `HDSHR1` shifts the hexadeca-byte operand in registers sr0-sr7 one
+// bit right, whereby the shift is performed in place: A = A >> 1.
+
+HDSHR1 macro
+    rra.w   sr7
+    rrc.w   sr6
+    rrc.w   sr5
+    rrc.w   sr4
+    rrc.w   sr3
+    rrc.w   sr2
+    rrc.w   sr1
+    rrc.w   sr0
+    endm
+
+
+// The macro `HDSHR2` shifts the hexadeca-byte operand in registers sr0-sr7 two
+// bits right, whereby the shift is performed in place: A = A >> 2.
+
+HDSHR2 macro
+    rra.w   sr7
+    rrc.w   sr6
+    rrc.w   sr5
+    rrc.w   sr4
+    rrc.w   sr3
+    rrc.w   sr2
+    rrc.w   sr1
+    rrc.w   sr0
+    rra.w   sr7
+    rrc.w   sr6
+    rrc.w   sr5
+    rrc.w   sr4
+    rrc.w   sr3
+    rrc.w   sr2
+    rrc.w   sr1
+    rrc.w   sr0
+    endm
+
+
+// The macro `HDSHR3` shifts the hexadeca-byte operand in registers sr0-sr7
+// three bits right, whereby the shift is performed in place: A = A >> 3.
+
+HDSHR3 macro
+    rra.w   sr7
+    rrc.w   sr6
+    rrc.w   sr5
+    rrc.w   sr4
+    rrc.w   sr3
+    rrc.w   sr2
+    rrc.w   sr1
+    rrc.w   sr0
+    rra.w   sr7
+    rrc.w   sr6
+    rrc.w   sr5
+    rrc.w   sr4
+    rrc.w   sr3
+    rrc.w   sr2
+    rrc.w   sr1
+    rrc.w   sr0
+    rra.w   sr7
+    rrc.w   sr6
+    rrc.w   sr5
+    rrc.w   sr4
+    rrc.w   sr3
+    rrc.w   sr2
+    rrc.w   sr1
+    rrc.w   sr0
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////// MACROS FOR LOADING AND STORING A HEXADECA-BYTE (128-BIT) OPERAND //////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// Note: The MSP430 architecture uses little-endian memory format, which means
+// the least-significant byte of a 32-bit word is at the lowest address.
+
+
+// The macro `HDLDO` loads a hexadeca-byte operand from RAM via pointer `grain`
+// using the base+offset (i.e. displacement) addressing mode and places it in
+// the eight registers sr0-sr7: A = RAM[grain+ofs].
+
+HDLDO macro ofs
+    mov.w   ofs(grain), sr0
+    mov.w   ofs+2(grain), sr1
+    mov.w   ofs+4(grain), sr2
+    mov.w   ofs+6(grain), sr3
+    mov.w   ofs+8(grain), sr4
+    mov.w   ofs+10(grain), sr5
+    mov.w   ofs+12(grain), sr6
+    mov.w   ofs+14(grain), sr7
+    endm
+
+
+// The macro `HDSTO` stores the hexadeca-byte operand in the eight registers 
+// sr0-sr7 to RAM via pointer `grain` using the base+offset (i.e. displacement)
+// addressing mode: RAM[grain+ofs] = A.
+
+HDSTO macro ofs
+    mov.w   sr0, ofs(grain)
+    mov.w   sr1, ofs+2(grain)
+    mov.w   sr2, ofs+4(grain)
+    mov.w   sr3, ofs+6(grain)
+    mov.w   sr4, ofs+8(grain)
+    mov.w   sr5, ofs+10(grain)
+    mov.w   sr6, ofs+12(grain)
+    mov.w   sr7, ofs+14(grain)
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+////////////////// HELPER MACROS FOR THE PRE-OUTPUT GENERATOR /////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `PROLOGUE` pushes all callee-saved registers and the pointer to
+// the grain-context on the stack. Furthermore, 16 bytes for eight temporary
+// variables for the f and h function are alocated on the stack.
+
+PROLOGUE macro
+    push.w  r4
+    push.w  r5
+    push.w  r6
+    push.w  r7
+    push.w  r8
+    push.w  r9
+    push.w  r10
+    push.w  r11
+    push.w  grain
+    sub.w   #16, sp
+    endm
+
+
+// The macro `EPILOGUE` removes the eight temporary variables and the pointer
+// to the grain-context from the stack. Then, it pops all callee-saved
+// registers from the stack, moves the 16 pre-output bits in register `yr` to
+// register r12 (as return value) and returns to the caller.
+
+EPILOGUE macro
+    add.w   #18, sp
+    pop.w   r11
+    pop.w   r10
+    pop.w   r9
+    pop.w   r8
+    pop.w   r7
+    pop.w   r6
+    pop.w   r5
+    pop.w   r4
+    mov.w   yr, r12
+    ret
+    endm
+
+
+// The macro `XOR2` XORs two operands to a third operand: C = C ^ A ^ B.
+
+XOR2 macro a, b, c
+    xor.w   a, c
+    xor.w   b, c
+    endm
+
+
+// The macro `ANDXOR` ANDs two operands and XORs the result to a third operand:
+// C = C ^ (A & B).
+
+ANDXOR macro a, b, c
+    mov.w   a, tmp
+    and.w   b, tmp
+    xor.w   tmp, c
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+/////////////////// MAIN MACROS FOR THE PRE-OUTPUT GENERATOR //////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+// The macro `INITVARS` initializes the two local variables `n8` and `yr`.
+
+INITVAR macro
+    mov.w   0(grain), n8
+    mov.w   24(grain), yr
+    endm
+
+
+// The macro `ULFSR16` updates the LSFR, which means the LSFR is shifted by 16
+// bits. Furthermore, the macro contributes to the computation of 16 pre-output
+// bits in register `yr`.
+
+ULFSR16 macro
+    HDLDO   0                   // load LFSR
+    mov.w   sr0, l8             // s0
+    xor.w   sr6, l8             // s96
+    HDSHR1                      // LFSR shifted 1 bits
+    xor.w   sr5, l8             // s81
+    HDSHR3                      // LFSR shifted 4 bits
+    mov.w   sr1, y0             // x2x3 = s13s20 --> y0 used
+    HDSHR2                      // LFSR shifted 6 bits
+    XOR2    sr2, sr4, l8        // s38 s70
+    HDSHR1                      // LFSR shifted 7 bits
+    xor.w   sr0, l8             // s7
+    HDSHR1                      // LFSR shifted 8 bits
+    mov.w   sr0, y1             // x0x1 = b12s8 --> y1 used
+    HDSHR2                      // LFSR shifted 10 bits
+    mov.w   sr2, y2             // x4x5 = b95s42 --> y2 used
+    HDSHR2                      // LFSR shifted 12 bits
+    mov.w   sr3, y3             // x6x7 = s60s79 --> y3 used
+    HDSHR1                      // LFSR shifted 13 bits
+    ANDXOR  y0, sr0, yr         // x2x3 = s13s20 --> y0 free
+    xor.w   sr5, yr             // s93
+    HDSHR1                      // LFSR shifted 14 bits
+    mov.w   sr5, y0             // x0x4x8 = b12b95s94 -> y0 used
+    HDSHR1                      // LFSR shifted 15 bits
+    ANDXOR  y3, sr4, yr         // x6x7 = s60s79 --> y3 free
+    HDSHR1                      // LFSR shifted 16 bits
+    mov.w   l8, sr7             // LFSR[7] = l8
+    mov.w   16(sp), grain       // get pointer to grain-context
+    HDSTO   0                   // store LFSR
+    endm
+
+
+// The macro `UNFSR16` updates the LSFR, which means the NSFR is shifted by 16
+// bits. Furthermore, the macro contributes to the computation of 16 pre-output
+// bits in register `yr`.
+
+UNFSR16 macro
+    HDLDO   16                  // load NFSR
+    XOR2    sr0, sr6, n8        // b0 b96
+    mov.w   sr3, t0             // b40b48 --> t0 used
+    HDSHR1                      // NFSR shifted 1 bits
+    mov.w   sr1, t1             // b17b18 --> t1 used
+    mov.w   sr4, t2             // b61b65 --> t2 used
+    HDSHR1                      // NFSR shifted 2 bits
+    ANDXOR  t1, sr1, n8         // b17b18 --> t1 free
+    mov.w   sr5, t1             // b70b78b82 --> t1 used
+    xor.w   sr0, yr             // b2
+    HDSHR1                      // NFSR shifted 3 bits
+    ANDXOR  sr0, sr4, n8        // b3b67
+    HDSHR1                      // NFSR shifted 4 bits
+    ANDXOR  sr4, sr5, n8        // b68b84
+    xor.w   sr2, yr             // b36
+    HDSHR2                      // NFSR shifted 6 bits
+    and.w   sr4, t1             // b70b78b82
+    mov.w   sr1, t3             // b22b24b25 --> t3 used
+    HDSHR2                      // NFSR shifted 8 bits
+    ANDXOR  t0, sr2, n8         // b40b48 --> t0 free
+    xor.w   sr3, n8             // b56
+    and.w   sr1, t3             // b22b24b25
+    mov.w   sr5, t0             // b88b92b93b95 --> t0 used
+    HDSHR1                      // NFSR shifted 9 bits
+    ANDXOR  t3, sr1, n8         // b22b24b25 --> t3 free
+    XOR2    sr4, sr5, yr        // b73 b89
+    HDSHR1                      // NFSR shifted 10 bits
+    xor.w   sr1, n8             // b26
+    HDSHR1                      // NFSR shifted 11 bits
+    xor.w   sr5, n8             // b91
+    ANDXOR  sr1, sr3, n8        // b27b59
+    mov.w   sr0, t3             // b11b13 --> t3 used
+    HDSHR1                      // NFSR shifted 12 bits
+    and.w   sr5, t0             // b88b92b93b95
+    ANDXOR  y1, sr0, yr         // x0x1 = b12s8 --> y1 free
+    and.w   sr0, y0             // x0x4x8 = b12b95s94
+    HDSHR1                      // NFSR shifted 13 bits
+    ANDXOR  t3, sr0, n8         // b11b13 --> t3 free
+    ANDXOR  t2, sr3, n8         // b61b65 --> t2 free
+    and.w   sr5, t0             // b88b92b93b95
+    xor.w   sr2, yr             // b45
+    HDSHR1                      // NFSR shifted 14 bits
+    ANDXOR  t1, sr4, n8         // b70b78b82 --> t1 free
+    HDSHR1                      // NFSR shifted 15 bits
+    ANDXOR  t0, sr5, n8         // b88b92b93b95 --> t0 free
+    xor.w   sr0, yr             // b15
+    ANDXOR  y2, sr5, yr         // x4x5 = b95s42 --> y2 free
+    ANDXOR  y0, sr5, yr         // x0x4x8 = b12b95s94 --> y0 free
+    HDSHR1                      // NFSR shifted 16 bits
+    mov.w   n8, sr7             // NFSR[7] = n8
+    mov.w   16(sp), grain       // get pointer to grain-context
+    HDSTO   16                  // store NFSR
+    endm
+
+
+///////////////////////////////////////////////////////////////////////////////
+////////////// GRAIN128 PRE-OUTPUT GENERATOR (KEYSTREAM FUNCTION) /////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+align 2
+public grain_keystr16_msp
+grain_keystr16_msp:
+    PROLOGUE                // push callee-saved registers
+    INITVAR                 // initialize local variables n8 and yr
+    ULFSR16                 // shift LFSR 16 bits and compute pre-output bits
+    UNFSR16                 // shift NFSR 16 bits and compute pre-output bits
+    EPILOGUE                // pop callee-saved registers and return
+
+
+end
