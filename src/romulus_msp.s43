@@ -41,7 +41,7 @@ rseg CODE(2)                // place module in 'CODE' segment with alignment 4
 ///////////////////////////////////////////////////////////////////////////////
 
 
-MAXROUNDS equ 40
+NROUNDS equ 40
 
 
 // Two MSP430 registers form a Quad-byte Register (QR) that can store a 32-bit
@@ -69,7 +69,7 @@ MAXROUNDS equ 40
 #define k1ptr r14
 #define k23ptr r15
 // Temp registers for rotation and masking
-#define tr r12
+#define tr r14
 #define mask r15
 
 
@@ -122,6 +122,15 @@ QMOV macro b0, b1, a0, a1
 QINV macro a0, a1
     inv.w   a0
     inv.w   a1
+    endm
+
+
+// The macro `QSET` sets the lower and upper half of a quad-byte operand to the
+// 16-bit immediate value `i16`: A = [i16,i16].
+
+QSET macro i16, a0, a1
+    mov.w   i16, a0
+    mov.w   a0, a1
     endm
 
 
@@ -188,8 +197,8 @@ QROR16 macro a0, a1
 ///////////////////////////////////////////////////////////////////////////////
 
 
-// The macro `SWMOV0` performs a swap-move operation (without a shift), which 
-// neans the bits in B, masked by M, are swapped with the bits in A, masked by
+// The macro `SWMOV0` performs a swap-move operation (without a shift), which
+// means the bits in B, masked by M, are swapped with the bits in A, masked by
 // M. This macro requires two temporary registers `t0` and `t1`.
 
 SWMOV0 macro ml, mh, bl, bh, al, ah
@@ -201,8 +210,8 @@ SWMOV0 macro ml, mh, bl, bh, al, ah
     endm
 
 
-// The macro `SWMOV1` performs a swap-move operation with a 1-bit shift, which 
-// neans the bits in B, masked by M, are swapped with the bits in A, masked by
+// The macro `SWMOV1` performs a swap-move operation with a 1-bit shift, which
+// means the bits in B, masked by M, are swapped with the bits in A, masked by
 // M << 1. This macro requires two temporary registers `t0` and `t1`.
 
 SWMOV1 macro ml, mh, bl, bh, al, ah
@@ -216,8 +225,8 @@ SWMOV1 macro ml, mh, bl, bh, al, ah
     endm
 
 
-// The macro `SWMOV2` performs a swap-move operation with a 2-bit shift, which 
-// neans the bits in B, masked by M, are swapped with the bits in A, masked by
+// The macro `SWMOV2` performs a swap-move operation with a 2-bit shift, which
+// means the bits in B, masked by M, are swapped with the bits in A, masked by
 // M << 2. This macro requires two temporary registers `t0` and `t1`.
 
 SWMOV2 macro ml, mh, bl, bh, al, ah
@@ -233,8 +242,8 @@ SWMOV2 macro ml, mh, bl, bh, al, ah
     endm
 
 
-// The macro `SWMOV3` performs a swap-move operation with a 3-bit shift, which 
-// neans the bits in B, masked by M, are swapped with the bits in A, masked by
+// The macro `SWMOV3` performs a swap-move operation with a 3-bit shift, which
+// means the bits in B, masked by M, are swapped with the bits in A, masked by
 // M << 3. This macro requires two temporary registers `t0` and `t1`.
 
 SWMOV3 macro ml, mh, bl, bh, al, ah
@@ -252,8 +261,8 @@ SWMOV3 macro ml, mh, bl, bh, al, ah
     endm
 
 
-// The macro `SWMOV4` performs a swap-move operation with a 4-bit shift, which 
-// neans the bits in B, masked by M, are swapped with the bits in A, masked by
+// The macro `SWMOV4` performs a swap-move operation with a 4-bit shift, which
+// means the bits in B, masked by M, are swapped with the bits in A, masked by
 // M << 4. This macro requires two temporary registers `t0` and `t1`.
 
 SWMOV4 macro ml, mh, bl, bh, al, ah
@@ -272,8 +281,8 @@ SWMOV4 macro ml, mh, bl, bh, al, ah
     QXOR    t0,t1, al,ah
     endm
 
-// The macro `SWMOV6` performs a swap-move operation with a 6-bit shift, which 
-// neans the bits in B, masked by M, are swapped with the bits in A, masked by
+// The macro `SWMOV6` performs a swap-move operation with a 6-bit shift, which
+// means the bits in B, masked by M, are swapped with the bits in A, masked by
 // M << 6. This macro requires two temporary registers `t0` and `t1`.
 
 SWMOV6 macro ml, mh, bl, bh, al, ah
@@ -349,17 +358,17 @@ EPILOGUE macro
     endm
 
 
-// The macro `LDPTEXT` loads the 128-bit plaintest from RAM and puts it in the
+// The macro `LDPTEXT` loads the 128-bit plaintext from RAM and puts it in the
 // four quad-byte registers `s0`-`s3`. It also pushes the pointer to the array
 // for the ciphertext on the stack.
 
 LDPTEXT macro
     mov.w   @pptr+, s0h
     mov.w   @pptr+, s0l
-    mov.w   @pptr+, s1h
-    mov.w   @pptr+, s1l
     mov.w   @pptr+, s2h
     mov.w   @pptr+, s2l
+    mov.w   @pptr+, s1h
+    mov.w   @pptr+, s1l
     mov.w   @pptr+, s3h
     mov.w   @pptr+, s3l
     push.w  cptr
@@ -377,12 +386,58 @@ STCTEXT macro
     pop.w   cptr
     mov.w   s0h, 0(cptr)
     mov.w   s0l, 2(cptr)
-    mov.w   s1h, 4(cptr)
-    mov.w   s1l, 6(cptr)
-    mov.w   s2h, 8(cptr)
-    mov.w   s2l, 10(cptr)
+    mov.w   s1h, 8(cptr)
+    mov.w   s1l, 10(cptr)
+    mov.w   s2h, 4(cptr)
+    mov.w   s2l, 6(cptr)
     mov.w   s3h, 12(cptr)
     mov.w   s3l, 14(cptr)
+    endm
+
+
+// The macro `TOSLICE` converts the plaintext from normal (i.e. byte-wise) to
+// bit-sliced representation
+
+TOSLICE macro
+    mov.w   #0x0a0a, mask
+    SWMOV3  mask,mask, s0l,s0h, s0l,s0h
+    SWMOV3  mask,mask, s1l,s1h, s1l,s1h
+    SWMOV3  mask,mask, s2l,s2h, s2l,s2h
+    SWMOV3  mask,mask, s3l,s3h, s3l,s3h
+    mov.w   #0x3030, mask
+    SWMOV2  mask,mask, s0l,s0h, s2l,s2h
+    mov.w   #0x0c0c, mask
+    SWMOV4  mask,mask, s0l,s0h, s1l,s1h
+    mov.w   #0x0303, mask
+    SWMOV6  mask,mask, s0l,s0h, s3l,s3h
+    mov.w   #0x0c0c, mask
+    SWMOV2  mask,mask, s2l,s2h, s1l,s1h
+    mov.w   #0x0303, mask
+    SWMOV4  mask,mask, s2l,s2h, s3l,s3h
+    SWMOV2  mask,mask, s1l,s1h, s3l,s3h
+    endm
+
+
+// The macro `TOBYTES` converts the ciphertext from bit-sliced to normal (i.e.
+// byte-wise) representation.
+
+TOBYTES macro
+    mov.w   #0x0303, mask
+    SWMOV2  mask,mask, s1l,s1h, s3l,s3h
+    SWMOV4  mask,mask, s2l,s2h, s3l,s3h
+    mov.w   #0x0c0c, mask
+    SWMOV2  mask,mask, s2l,s2h, s1l,s1h
+    mov.w   #0x0303, mask
+    SWMOV6  mask,mask, s0l,s0h, s3l,s3h
+    mov.w   #0x0c0c, mask
+    SWMOV4  mask,mask, s0l,s0h, s1l,s1h
+    mov.w   #0x3030, mask
+    SWMOV2  mask,mask, s0l,s0h, s2l,s2h
+    mov.w   #0x0a0a, mask
+    SWMOV3  mask,mask, s3l,s3h, s3l,s3h
+    SWMOV3  mask,mask, s2l,s2h, s2l,s2h
+    SWMOV3  mask,mask, s1l,s1h, s1l,s1h
+    SWMOV3  mask,mask, s0l,s0h, s0l,s0h
     endm
 
 
@@ -397,18 +452,16 @@ STCTEXT macro
 MIXCOL0 macro al, ah
     // tmp = ROR(state[i], 24) & 0x0c0c0c0c;
     // state[i] ^= ROR(tmp, 30);
-    mov.w   #0x0c0c, mask
-    QMOV    al,ah, t0,t1
+    QSET    #0x0c0c, t0,t1
+    QAND    al,ah, t0,t1
     QROL8   t0,t1
-    QAND    mask,mask, t0,t1
     QROL    t0,t1
     QROL    t0,t1
     QXOR    t0,t1, al,ah
     // tmp = ROR(state[i], 16) & 0xc0c0c0c0;
     // state[i] ^= ROR(tmp,  4);
-    mov.w   #0xc0c0, mask
-    QMOV    al,ah, t1,t0
-    QAND    mask,mask, t0,t1
+    QSET    #0xc0c0, t0,t1
+    QAND    ah,al, t0,t1
     QROR    t0,t1
     QROR    t0,t1
     QROR    t0,t1
@@ -416,10 +469,9 @@ MIXCOL0 macro al, ah
     QXOR    t0,t1, al,ah
     // tmp = ROR(state[i],  8) & 0x0c0c0c0c;
     // state[i] ^= ROR(tmp,  2);
-    mov.w   #0x0c0c, mask
-    QMOV    al,ah, t0,t1
+    QSET    #0x0c0c, t0,t1
+    QAND    al,ah, t0,t1
     QROR8   t0,t1
-    QAND    mask,mask, t0,t1
     QROR    t0,t1
     QROR    t0,t1
     QXOR    t0,t1, al,ah
@@ -430,99 +482,88 @@ MIXCOL0 macro al, ah
 // state for rounds i with (i % 4) == 1.
 
 MIXCOL1 macro al, ah
-    // tmp = ROR(state[i], 24) & 0x0c0c0c0c;
+    // tmp = ROR(state[i], 16) & 0x30303030;
     // state[i] ^= ROR(tmp, 30);
-    mov.w   #0x0c0c, mask
-    QMOV    al,ah, t0,t1
-    QROL8   t0,t1
-    QAND    mask,mask, t0,t1
+    QSET    #0x3030, t0,t1
+    QAND    ah,al, t0,t1
     QROL    t0,t1
     QROL    t0,t1
     QXOR    t0,t1, al,ah
-    // tmp = ROR(state[i], 16) & 0xc0c0c0c0;
-    // state[i] ^= ROR(tmp,  4);
-    mov.w   #0xc0c0, mask
-    QMOV    al,ah, t1,t0
-    QAND    mask,mask, t0,t1
-    QROR    t0,t1
-    QROR    t0,t1
-    QROR    t0,t1
-    QROR    t0,t1
+    // tmp = state[i] & 0x03030303;
+    // state[i] ^= ROR(tmp, 28);
+    QSET    #0x0303, t0,t1
+    QAND    al,ah, t0,t1
+    QROL    t0,t1
+    QROL    t0,t1
+    QROL    t0,t1
+    QROL    t0,t1
     QXOR    t0,t1, al,ah
-    // tmp = ROR(state[i],  8) & 0x0c0c0c0c;
+    // tmp = ROR(state[i], 16) & 0x30303030;
     // state[i] ^= ROR(tmp,  2);
-    mov.w   #0x0c0c, mask
-    QMOV    al,ah, t0,t1
-    QROR8   t0,t1
-    QAND    mask,mask, t0,t1
+    QSET    #0x3030, t0,t1
+    QAND    ah,al, t0,t1
     QROR    t0,t1
     QROR    t0,t1
     QXOR    t0,t1, al,ah
     endm
+
 
 // The macro `MIXCOL2` performs a MixColumns operation on a 32-bit word of the
 // state for rounds i with (i % 4) == 2.
 
 MIXCOL2 macro al, ah
-    // tmp = ROR(state[i], 24) & 0x0c0c0c0c;
-    // state[i] ^= ROR(tmp, 30);
-    mov.w   #0x0c0c, mask
-    QMOV    al,ah, t0,t1
-    QROL8   t0,t1
-    QAND    mask,mask, t0,t1
+    // tmp = ROR(state[i],  8) & 0xc0c0c0c0;
+    // state[i] ^= ROR(tmp,  6);
+    QSET    #0xc0c0, t0,t1
+    QAND    ah,al, t0,t1
     QROL    t0,t1
     QROL    t0,t1
     QXOR    t0,t1, al,ah
-    // tmp = ROR(state[i], 16) & 0xc0c0c0c0;
-    // state[i] ^= ROR(tmp,  4);
-    mov.w   #0xc0c0, mask
-    QMOV    al,ah, t1,t0
-    QAND    mask,mask, t0,t1
-    QROR    t0,t1
-    QROR    t0,t1
-    QROR    t0,t1
-    QROR    t0,t1
+    // tmp = ROR(state[i], 16) & 0x0c0c0c0c;
+    // state[i] ^= ROR(tmp, 28);
+    QSET    #0x0c0c, t0,t1
+    QAND    ah,al, t0,t1
+    QROL    t0,t1
+    QROL    t0,t1
+    QROL    t0,t1
+    QROL    t0,t1
     QXOR    t0,t1, al,ah
-    // tmp = ROR(state[i],  8) & 0x0c0c0c0c;
+    // tmp = ROR(state[i], 24) & 0xc0c0c0c0;
     // state[i] ^= ROR(tmp,  2);
-    mov.w   #0x0c0c, mask
-    QMOV    al,ah, t0,t1
-    QROR8   t0,t1
-    QAND    mask,mask, t0,t1
+    QSET    #0xc0c0, t0,t1
+    QAND    al,ah, t0,t1
+    QROL8   t0,t1
     QROR    t0,t1
     QROR    t0,t1
     QXOR    t0,t1, al,ah
     endm
 
+
 // The macro `MIXCOL3` performs a MixColumns operation on a 32-bit word of the
 // state for rounds i with (i % 4) == 3.
 
 MIXCOL3 macro al, ah
-    // tmp = ROR(state[i], 24) & 0x0c0c0c0c;
+    // tmp = state[i] & 0x03030303;
     // state[i] ^= ROR(tmp, 30);
-    mov.w   #0x0c0c, mask
-    QMOV    al,ah, t0,t1
-    QROL8   t0,t1
-    QAND    mask,mask, t0,t1
+    QSET    #0x0303, t0,t1
+    QAND    al,ah, t0,t1
     QROL    t0,t1
     QROL    t0,t1
     QXOR    t0,t1, al,ah
-    // tmp = ROR(state[i], 16) & 0xc0c0c0c0;
+    // tmp = state[i] & 0x30303030;
     // state[i] ^= ROR(tmp,  4);
-    mov.w   #0xc0c0, mask
-    QMOV    al,ah, t1,t0
-    QAND    mask,mask, t0,t1
+    QSET    #0x3030, t0,t1
+    QAND    al,ah, t0,t1
     QROR    t0,t1
     QROR    t0,t1
     QROR    t0,t1
     QROR    t0,t1
     QXOR    t0,t1, al,ah
-    // tmp = ROR(state[i],  8) & 0x0c0c0c0c;
-    // state[i] ^= ROR(tmp,  2);
-    mov.w   #0x0c0c, mask
-    QMOV    al,ah, t0,t1
-    QROR8   t0,t1
-    QAND    mask,mask, t0,t1
+    // tmp = state[i] & 0x03030303;
+    // state[i] ^= ROR(tmp, 26);
+    QSET    #0x0303, t0,t1
+    QAND    al,ah, t0,t1
+    QROL8   t0,t1
     QROR    t0,t1
     QROR    t0,t1
     QXOR    t0,t1, al,ah
@@ -532,36 +573,39 @@ MIXCOL3 macro al, ah
 // The macro `ADDRTK` XORs four 32-bit words from the first round-tweakey-array
 // (accessed through pointer `k1ptr`) and four 32-bit words from the second
 // round-tweakey-array (accessed through pointer `k23ptr`) to the state held in
-// registers `r0l`-`r3h`.
+// registers `r0l`-`r3h`. The address of the first round-tweakey-array is the
+// sum of the array's base address (located on the stack!), the lower byte of
+// the rounds-counter (which is 64*i), and the offset value `ofs`.
 
-ADDRTK macro
-    mov.w   4(sp), k1ptr
+ADDRTK macro ofs
+    mov.b   0(sp), k1ptr
+    add.w   4(sp), k1ptr
     mov.w   2(sp), k23ptr
-    xor.w   0(k1ptr), s0l
+    xor.w   ofs+0(k1ptr), s0l
     xor.w   @k23ptr+, s0l
-    xor.w   2(k1ptr), s0h
+    xor.w   ofs+2(k1ptr), s0h
     xor.w   @k23ptr+, s0h
-    xor.w   4(k1ptr), s1l
+    xor.w   ofs+4(k1ptr), s1l
     xor.w   @k23ptr+, s1l
-    xor.w   6(k1ptr), s1h
+    xor.w   ofs+6(k1ptr), s1h
     xor.w   @k23ptr+, s1h
-    xor.w   8(k1ptr), s2l
+    xor.w   ofs+8(k1ptr), s2l
     xor.w   @k23ptr+, s2l
-    xor.w   10(k1ptr), s2h
+    xor.w   ofs+10(k1ptr), s2h
     xor.w   @k23ptr+, s2h
-    xor.w   12(k1ptr), s3l
+    xor.w   ofs+12(k1ptr), s3l
     xor.w   @k23ptr+, s3l
-    xor.w   14(k1ptr), s3h
+    xor.w   ofs+14(k1ptr), s3h
     xor.w   @k23ptr+, s3h
     mov.w   k23ptr, 2(sp)
     endm
 
 
-// The macro `ROUNDE` performs a single round for fix-sliced Skinny-128-384+
+// The macro `EVENRND` performs a single round for fix-sliced Skinny-128-384+
 // (excluding MixColumns and AddRoundTweakey), whereby the round-number i must
 // be even.
 
-ROUNDE macro
+EVENRND macro
     mov.w   #0x5555, mask
     // state[3] ^= ~(state[0] | state[1]); 
     QORIXOR s0l,s0h, s1l,s1h, s3l,s3h
@@ -570,7 +614,7 @@ ROUNDE macro
     // SWAPMOVE(state[3], state[2], 0x55555555, 1);
     SWMOV1  mask,mask, s2l,s2h, s3l,s3h
     // state[1] ^= ~(state[2] | state[3]);
-    QORIXOR s0l,s0h, s1l,s1h, s1l,s1h
+    QORIXOR s2l,s2h, s3l,s3h, s1l,s1h
     // SWAPMOVE(state[1], state[0], 0x55555555, 1);
     SWMOV1  mask,mask, s0l,s0h, s1l,s1h
     // SWAPMOVE(state[0], state[3], 0x55555555, 1);
@@ -584,15 +628,16 @@ ROUNDE macro
     // state[1] ^=  (state[2] | state[3]);
     QORXOR  s2l,s2h, s3l,s3h, s1l,s1h
     // SWAPMOVE(state[3], state[0], 0x55555555, 0);
-    SWMOV1  mask,mask, s0l,s0h, s3l,s3h
+    SWMOV0  mask,mask, s0l,s0h, s3l,s3h
     endm
 
 
-// The macro `ROUNDO` performs a single round for fix-sliced Skinny-128-384+
+// The macro `ODDRND` performs a single round for fix-sliced Skinny-128-384+
 // (excluding MixColumns and AddRoundTweakey), whereby the round-number i must
 // be odd.
 
-ROUNDO macro
+ODDRND macro
+    mov.w   #0x5555, mask
     // state[1] ^= ~(state[2] | state[3]);
     QORIXOR s2l,s2h, s3l,s3h, s1l,s1h
     // SWAPMOVE(state[0], state[3], 0x55555555, 1);
@@ -614,7 +659,7 @@ ROUNDO macro
     // state[3] ^= (state[0] | state[1]);
     QORXOR  s0l,s0h, s1l,s1h, s3l,s3h
     // SWAPMOVE(state[1], state[2], 0x55555555, 0);
-    SWMOV1  mask,mask, s2l,s2h, s1l,s1h
+    SWMOV0  mask,mask, s2l,s2h, s1l,s1h
     endm
 
 
@@ -622,8 +667,8 @@ ROUNDO macro
 // sliced Skinny-128-384+.
 
 ROUND0 macro
-    ROUNDE
-    ADDRTK
+    EVENRND
+    ADDRTK  0
     MIXCOL0 s0l,s0h
     MIXCOL0 s1l,s1h
     MIXCOL0 s2l,s2h
@@ -635,8 +680,8 @@ ROUND0 macro
 // sliced Skinny-128-384+.
 
 ROUND1 macro
-    ROUNDO
-    ADDRTK
+    ODDRND
+    ADDRTK  16
     MIXCOL1 s0l,s0h
     MIXCOL1 s1l,s1h
     MIXCOL1 s2l,s2h
@@ -648,8 +693,8 @@ ROUND1 macro
 // sliced Skinny-128-384+.
 
 ROUND2 macro
-    ROUNDE
-    ADDRTK
+    EVENRND
+    ADDRTK  32
     MIXCOL2 s0l,s0h
     MIXCOL2 s1l,s1h
     MIXCOL2 s2l,s2h
@@ -661,8 +706,8 @@ ROUND2 macro
 // sliced Skinny-128-384+.
 
 ROUND3 macro
-    ROUNDE
-    ADDRTK
+    ODDRND
+    ADDRTK  48
     MIXCOL3 s0l,s0h
     MIXCOL3 s1l,s1h
     MIXCOL3 s2l,s2h
@@ -680,16 +725,19 @@ public skinny128384p_enc_msp
 skinny128384p_enc_msp:
     PROLOGUE                // push callee-saved registers
     LDPTEXT                 // load 128-bit block of plaintext from RAM
-    push.w #(MAXROUNDS/4)   // initialize round-counter (on stack!)
+    TOSLICE                 // convert plaintext to bit-sliced representation
+    push.w #0               // initialize round-counter (on stack!)
 ROUNDLOOP:                  // start of round-loop
     ROUND0                  // macro for 1st round of a quadruple-round
     ROUND1                  // macro for 2nd round of a quadruple-round
     ROUND2                  // macro for 3rd round of a quadruple-round
     ROUND3                  // macro for 4th round of a quadruple-round
-    sub.w #1, 0(sp)         // decrement round-counter (on stack!)
-    jz $+6                  // jump to end of loop if round-counter == 0
-    br #ROUNDLOOP           // jump back to start of loop if round-counter != 0
+    add.w #16*4, 0(sp)      // increment round-counter (on stack!) by 64
+    cmp.w #16*NROUNDS,0(sp) // check whether round-counter equals 16*NROUNDS
+    jz $+6                  // if yes then jump over subsequent branch instr
+    br #ROUNDLOOP           // if not then branch back to start of round-loop
     add.w #2, sp            // remove round-counter from stack
+    TOBYTES                 // convert ciphertext to byte-wise representation
     STCTEXT                 // store 128-bit block of ciphertext to RAM
     EPILOGUE                // pop callee-saved registers and return
 

@@ -20,7 +20,7 @@
 #include <string.h>
 
 
-#define SKINNY128_384_ROUNDS 40
+#define NROUNDS 40
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -28,7 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-// The followig macros are based on the source code in `skinny128.h` and
+// The following macros are based on the source code in `skinny128.h` and
 // `tk_schedule.h` of the `fixslice_opt32` implementation from the designers.
 
 #define ROR(x, y) (((x) >> (y)) | ((x) << (32 - (y))))
@@ -169,7 +169,7 @@ void mixcolumns_1(uint32_t *state)
 {
   uint32_t tmp;
   int i;
-  
+
   for(i = 0; i < 4; i++) {
     tmp = ROR(state[i], 16) & 0x30303030;
     state[i] ^= ROR(tmp, 30);
@@ -224,7 +224,6 @@ void packing(uint32_t *out, const uint8_t *in)
   LE_LOAD(out + 1, in + 8);
   LE_LOAD(out + 2, in + 4);
   LE_LOAD(out + 3, in + 12);
-
   SWAPMOVE(out[0], out[0], 0x0a0a0a0a, 3);
   SWAPMOVE(out[1], out[1], 0x0a0a0a0a, 3);
   SWAPMOVE(out[2], out[2], 0x0a0a0a0a, 3);
@@ -252,7 +251,6 @@ void unpacking(uint8_t *out, uint32_t *in)
   SWAPMOVE(in[1], in[1], 0x0a0a0a0a, 3);
   SWAPMOVE(in[2], in[2], 0x0a0a0a0a, 3);
   SWAPMOVE(in[3], in[3], 0x0a0a0a0a, 3);
-
   LE_STORE(out, in[0]);
   LE_STORE(out + 8, in[1]);
   LE_STORE(out + 4, in[2]);
@@ -288,7 +286,7 @@ void skinny128384p_enc_c99_V1(uint8_t *ctext, const uint8_t *ptext, \
 */
 
 
-#define ROUND_EVEN(state)                       \
+#define EVEN_ROUND(state)                       \
 do {                                            \
   state[3] ^= ~(state[0] | state[1]);           \
   SWAPMOVE(state[2], state[1], 0x55555555, 1);  \
@@ -304,7 +302,7 @@ do {                                            \
 } while (0)
 
 
-#define ROUND_ODD(state)                        \
+#define ODD_ROUND(state)                        \
 do {                                            \
   state[1] ^= ~(state[2] | state[3]);           \
   SWAPMOVE(state[0], state[3], 0x55555555, 1);  \
@@ -331,16 +329,16 @@ do {                                            \
 
 #define QUADRUPLE_ROUND_V2(state, rtk1, rtk2_3) \
 do {                                            \
-  ROUND_EVEN(state);                            \
+  EVEN_ROUND(state);                            \
   ADD_RTWEAKEY(state, rtk1, rtk2_3, 0);         \
   mixcolumns_0(state);                          \
-  ROUND_ODD(state);                             \
+  ODD_ROUND(state);                             \
   ADD_RTWEAKEY(state, rtk1, rtk2_3, 4);         \
   mixcolumns_1(state);                          \
-  ROUND_EVEN(state);                            \
+  EVEN_ROUND(state);                            \
   ADD_RTWEAKEY(state, rtk1, rtk2_3, 8);         \
   mixcolumns_2(state);                          \
-  ROUND_ODD(state);                             \
+  ODD_ROUND(state);                             \
   ADD_RTWEAKEY(state, rtk1, rtk2_3, 12);        \
   mixcolumns_3(state);                          \
 } while (0)
@@ -360,8 +358,8 @@ void skinny128384p_enc_c99_V2(uint8_t *ctext, const uint8_t *ptext, \
   int i;
 
   packing(state, ptext);    // from byte to bitsliced representation
-  for (i = 0; i < 16; i += 16) {
-    QUADRUPLE_ROUND_V1(state, rtk1 + (i & 0x3f), rtk2_3 + i);
+  for (i = 0; i < 4*NROUNDS; i += 4*4) {
+    QUADRUPLE_ROUND_V2(state, rtk1 + (i & 0x3f), rtk2_3 + i);
   }
   unpacking(ctext, state);  // from bitsliced to byte representation
 }
