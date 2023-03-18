@@ -12,7 +12,7 @@ This repository contains carefully-optimized MSP430 Assembler code for the most 
 | Elephant (Dumbo) | Spongent-π[160] (80 rounds)    | 40495 cycles   | 822 bytes        |
 | GIFT-COFB        | GIFT-128 (FS, 40 rounds)       | 3839 cycles    | 1144 bytes       |
 | Grain-128AEAD v2 | Pre-output generator (16 bits) | 589 cycles     | 916 bytes        |
-| ISAP             | P6 (6 rounds)                  | 3520 cycles    | 710 bytes        |
+| ISAP v2.0        | P6 (6 rounds)                  | 3520 cycles    | 710 bytes        |
 | PHOTON-Beetle    | PHOTON256 (12 rounds)          | 15543 cycles   | 1558 bytes       | 
 | Romulus-N        | Skinny-128-384+ (40 rounds)    | 16597 cycles   | 4264 bytes       |
 | Schwaemm256-128  | SPARKLE384 (7 steps)           | 5958 cycles    | 640 bytes        |
