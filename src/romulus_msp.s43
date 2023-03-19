@@ -734,8 +734,8 @@ ROUNDLOOP:                  // start of round-loop
     ROUND3                  // macro for 4th round of a quadruple-round
     add.w #16*4, 0(sp)      // increment round-counter (on stack!) by 64
     cmp.w #16*NROUNDS,0(sp) // check whether round-counter equals 16*NROUNDS
-    jz $+6                  // if yes then jump over subsequent branch instr
-    br #ROUNDLOOP           // if not then branch back to start of round-loop
+    jz $+6                  // if yes then skip subsequent branch instruction
+    br #ROUNDLOOP           // branch back to start of round-loop
     add.w #2, sp            // remove round-counter from stack
     TOBYTES                 // convert ciphertext to byte-wise representation
     STCTEXT                 // store 128-bit block of ciphertext to RAM
